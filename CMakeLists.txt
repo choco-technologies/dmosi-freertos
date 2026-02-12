@@ -72,20 +72,38 @@ target_include_directories(freertos_config
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config>
 )
 
+# Set default FREERTOS_PORT if not defined (for standalone builds)
+if(NOT DEFINED FREERTOS_PORT)
+    set(FREERTOS_PORT "GCC_POSIX" CACHE STRING "FreeRTOS port")
+    message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
+endif()
+
+# Set heap implementation
+if(NOT DEFINED FREERTOS_HEAP)
+    set(FREERTOS_HEAP "4" CACHE STRING "FreeRTOS heap implementation")
+endif()
+
+# Add FreeRTOS subdirectory
+add_subdirectory(lib/freertos)
+
 # ======================================================================
 #               DMOD VFS Library definition
 # ======================================================================
 add_library(dmosi_freertos STATIC
     src/dmosi_freertos.c
+    src/dmosi_mutex.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib/freertos/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config>
 )
 
 target_link_libraries(dmosi_freertos PUBLIC
     dmod
     dmosi
+    freertos_kernel
 )
 
 # Define version string for the library
