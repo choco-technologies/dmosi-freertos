@@ -109,7 +109,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
     
     if (result == pdTRUE) {
         return 0;
-    } else if (timeout_ms == 0 || ticks == 0) {
+    } else if (ticks == 0) {
         return -EAGAIN;  // Would block
     } else {
         return -ETIMEDOUT;  // Timeout occurred
