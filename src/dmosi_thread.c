@@ -74,7 +74,7 @@ static void thread_wrapper(void* pvParameters)
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thread_entry_t entry, void* arg, int priority, size_t stack_size) )
 {
-    if (entry == NULL) {
+    if (entry == NULL || stack_size == 0) {
         return NULL;
     }
 
@@ -188,6 +188,17 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
         // Wait for notification from the thread when it completes
         // Use portMAX_DELAY for infinite wait
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        
+        // Double-check that the thread has actually completed
+        // This guards against spurious notifications
+        taskENTER_CRITICAL();
+        while (!thrd->completed) {
+            taskEXIT_CRITICAL();
+            // If not completed, wait again
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            taskENTER_CRITICAL();
+        }
+        taskEXIT_CRITICAL();
     }
 
     // Thread has completed, mark as joined
@@ -203,15 +214,18 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
  * 
  * Returns a handle to the currently executing thread.
  * 
- * IMPORTANT: The returned handle is allocated dynamically and MUST be freed
- * by calling dmosi_thread_destroy() when no longer needed. However, note that
- * calling destroy on the current thread handle will NOT terminate the current
- * thread - it will only free the wrapper structure. This is a limitation of
- * the current design.
+ * IMPORTANT LIMITATIONS:
+ * 1. The returned handle is allocated dynamically and MUST be freed by calling
+ *    dmosi_thread_destroy() when no longer needed.
+ * 2. Each call allocates a NEW wrapper structure, even for the same task.
+ *    Callers must be careful to destroy all handles they create.
+ * 3. Calling destroy on the current thread handle will NOT terminate the
+ *    current thread - it will only free the wrapper structure.
  * 
- * In a production system, you would maintain a global registry of thread
- * structures to return the actual thread structure for the current task,
- * avoiding this memory management issue.
+ * RECOMMENDED: Only call this function when absolutely necessary and ensure
+ * proper cleanup. In a production system, you would maintain a global registry
+ * of thread structures (using task-local storage) to return the same handle
+ * for each task, avoiding this memory management issue.
  * 
  * @return dmod_thread_t Current thread handle, or NULL if allocation fails
  */
@@ -233,7 +247,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
     thread->handle = current_handle;
     thread->entry = NULL;
     thread->arg = NULL;
-    thread->completed = false;
+    // Mark as completed=true since this is a running thread, not one we created
+    // This prevents _thread_destroy from trying to delete the current task
+    thread->completed = true;
     thread->joined = false;
     thread->joiner = NULL;
     
@@ -250,5 +266,12 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_sleep, (uint32_t ms) )
 {
     TickType_t ticks = pdMS_TO_TICKS(ms);
+    
+    // Ensure we delay at least 1 tick if ms > 0
+    // vTaskDelay(0) just yields to equal priority tasks without blocking
+    if (ms > 0 && ticks == 0) {
+        ticks = 1;
+    }
+    
     vTaskDelay(ticks);
 }
