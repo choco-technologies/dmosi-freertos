@@ -67,7 +67,12 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _mutex_destroy, (dmosi_mutex_t mut
 
     struct dmosi_mutex* mtx = (struct dmosi_mutex*)mutex;
     
-    vSemaphoreDelete(mtx->handle);
+    // Defensive check: handle should never be NULL for a valid mutex,
+    // but check anyway to prevent undefined behavior
+    if (mtx->handle != NULL) {
+        vSemaphoreDelete(mtx->handle);
+    }
+    
     vPortFree(mtx);
 }
 
