@@ -53,7 +53,7 @@ FetchContent_Declare(
     dmosi
     GIT_REPOSITORY
     https://github.com/choco-technologies/dmosi.git
-    GIT_TAG        master
+    GIT_TAG        main
 )
 
 # ======================================================================
