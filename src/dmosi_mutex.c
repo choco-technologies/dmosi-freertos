@@ -31,7 +31,7 @@ struct dmosi_mutex {
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_mutex_t, _mutex_create, (bool recursive) )
 {
-    struct dmosi_mutex* mutex = (struct dmosi_mutex*)pvPortMalloc(sizeof(struct dmosi_mutex));
+    struct dmosi_mutex* mutex = (struct dmosi_mutex*)pvPortMalloc(sizeof(*mutex));
     if (mutex == NULL) {
         return NULL;
     }
@@ -97,7 +97,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _mutex_lock, (dmosi_mutex_t mutex) 
         result = xSemaphoreTake(mtx->handle, portMAX_DELAY);
     }
 
-    return (result == pdTRUE) ? 0 : -EAGAIN;
+    return (result == pdTRUE) ? 0 : -EIO;
 }
 
 /**
@@ -124,5 +124,5 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _mutex_unlock, (dmosi_mutex_t mutex
         result = xSemaphoreGive(mtx->handle);
     }
 
-    return (result == pdTRUE) ? 0 : -EAGAIN;
+    return (result == pdTRUE) ? 0 : -EPERM;
 }
