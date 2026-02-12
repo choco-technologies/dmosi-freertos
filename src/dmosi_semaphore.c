@@ -8,12 +8,10 @@
 /**
  * @brief Internal structure to wrap FreeRTOS semaphore handle
  * 
- * This structure wraps the FreeRTOS SemaphoreHandle_t and stores
- * the maximum count for the semaphore.
+ * This structure wraps the FreeRTOS SemaphoreHandle_t.
  */
 struct dmosi_semaphore {
     SemaphoreHandle_t handle;  /**< FreeRTOS semaphore handle */
-    uint32_t max_count;        /**< Maximum count for the semaphore */
 };
 
 //==============================================================================
@@ -47,7 +45,6 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_semaphore_t, _semaphore_create, (u
         return NULL;
     }
 
-    semaphore->max_count = max_count;
     return (dmosi_semaphore_t)semaphore;
 }
 
