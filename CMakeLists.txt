@@ -57,10 +57,20 @@ FetchContent_Declare(
 )
 
 # ======================================================================
-#               DMOD File System Interface Configuration
+#               DMOD OS Interface Configuration
 # ======================================================================
 set(DMOD_DIR ${dmod_SOURCE_DIR})
 FetchContent_MakeAvailable(dmosi)
+
+# ======================================================================
+#               FreeRTOS Configuration
+# ======================================================================
+add_library(freertos_config INTERFACE)
+
+target_include_directories(freertos_config
+    INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config>
+)
 
 # ======================================================================
 #               DMOD VFS Library definition
