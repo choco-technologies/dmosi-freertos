@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdbool.h>
 #include <errno.h>
 #include "dmosi.h"
 #include "FreeRTOS.h"
@@ -66,10 +67,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _mutex_destroy, (dmosi_mutex_t mut
 
     struct dmosi_mutex* mtx = (struct dmosi_mutex*)mutex;
     
-    if (mtx->handle != NULL) {
-        vSemaphoreDelete(mtx->handle);
-    }
-    
+    vSemaphoreDelete(mtx->handle);
     vPortFree(mtx);
 }
 
