@@ -11,6 +11,10 @@ project(dmosi_freertos
     DESCRIPTION "DMOD OS Interface for FreeRTOS"
     LANGUAGES C CXX)
 
+# ======================================================================
+#               For VS Code
+# ======================================================================
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ======================================================================
 #               Fetch DMOD repository
