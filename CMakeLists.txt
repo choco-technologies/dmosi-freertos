@@ -96,6 +96,7 @@ add_subdirectory(lib/freertos)
 add_library(dmosi_freertos STATIC
     src/dmosi_freertos.c
     src/dmosi_mutex.c
+    src/dmosi_thread.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
