@@ -6,6 +6,14 @@
 #include "task.h"
 
 /**
+ * @brief Task-local storage index for storing dmod_thread structure
+ * 
+ * This index is used to store and retrieve the dmod_thread structure
+ * associated with each FreeRTOS task.
+ */
+#define DMOD_THREAD_TLS_INDEX    0
+
+/**
  * @brief Internal structure to wrap FreeRTOS task handle
  * 
  * This structure wraps the FreeRTOS TaskHandle_t and stores thread-related
@@ -32,6 +40,12 @@ static void thread_wrapper(void* pvParameters)
 {
     struct dmod_thread* thread = (struct dmod_thread*)pvParameters;
     TaskHandle_t joiner_to_notify = NULL;
+    
+    // Store the thread structure in task-local storage so it can be
+    // retrieved by dmosi_thread_current()
+    if (thread != NULL) {
+        vTaskSetThreadLocalStoragePointer(NULL, DMOD_THREAD_TLS_INDEX, thread);
+    }
     
     if (thread != NULL && thread->entry != NULL) {
         thread->entry(thread->arg);
@@ -115,8 +129,8 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
  * 
  * Destroys a thread and frees associated resources.
  * 
- * Special case: If this is called on a handle returned by dmosi_thread_current(),
- * it will only free the wrapper structure and NOT terminate the current thread.
+ * This function clears the task-local storage pointer before freeing the
+ * structure to ensure no dangling pointers remain.
  * 
  * If the thread is still running and is not the current thread, it will be
  * forcefully deleted.
@@ -131,6 +145,16 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmod_thread_t th
 
     struct dmod_thread* thrd = (struct dmod_thread*)thread;
     TaskHandle_t current = xTaskGetCurrentTaskHandle();
+    
+    // Clear the task-local storage pointer if this is the current thread
+    // or if the task is still valid
+    if (thrd->handle != NULL) {
+        // Check if the task-local storage still points to this structure
+        void* stored = pvTaskGetThreadLocalStoragePointer(thrd->handle, DMOD_THREAD_TLS_INDEX);
+        if (stored == thrd) {
+            vTaskSetThreadLocalStoragePointer(thrd->handle, DMOD_THREAD_TLS_INDEX, NULL);
+        }
+    }
     
     // Only delete the task if:
     // 1. It hasn't completed yet (completed is false)
@@ -214,18 +238,17 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
  * 
  * Returns a handle to the currently executing thread.
  * 
- * IMPORTANT LIMITATIONS:
- * 1. The returned handle is allocated dynamically and MUST be freed by calling
- *    dmosi_thread_destroy() when no longer needed.
- * 2. Each call allocates a NEW wrapper structure, even for the same task.
- *    Callers must be careful to destroy all handles they create.
- * 3. Calling destroy on the current thread handle will NOT terminate the
- *    current thread - it will only free the wrapper structure.
+ * This implementation uses FreeRTOS task-local storage to maintain a single
+ * thread structure per task. The first time this is called for a task,
+ * it allocates and stores the structure. Subsequent calls return the same
+ * structure.
  * 
- * RECOMMENDED: Only call this function when absolutely necessary and ensure
- * proper cleanup. In a production system, you would maintain a global registry
- * of thread structures (using task-local storage) to return the same handle
- * for each task, avoiding this memory management issue.
+ * For tasks created with dmosi_thread_create, the structure is already stored
+ * during creation. For other tasks (e.g., the main task or tasks created
+ * directly with FreeRTOS), a structure is allocated on first call.
+ * 
+ * The returned handle should be passed to dmosi_thread_destroy() to free
+ * the allocated structure when it's no longer needed.
  * 
  * @return dmod_thread_t Current thread handle, or NULL if allocation fails
  */
@@ -237,21 +260,31 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
         return NULL;
     }
     
-    // Allocate a wrapper structure for the current thread
-    // Caller must free this by calling dmosi_thread_destroy()
-    struct dmod_thread* thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
-    if (thread == NULL) {
-        return NULL;
-    }
+    // Try to retrieve existing thread structure from task-local storage
+    struct dmod_thread* thread = (struct dmod_thread*)pvTaskGetThreadLocalStoragePointer(
+        current_handle, 
+        DMOD_THREAD_TLS_INDEX
+    );
     
-    thread->handle = current_handle;
-    thread->entry = NULL;
-    thread->arg = NULL;
-    // Mark as completed=true since this is a running thread, not one we created
-    // This prevents _thread_destroy from trying to delete the current task
-    thread->completed = true;
-    thread->joined = false;
-    thread->joiner = NULL;
+    // If no structure exists, allocate and store one
+    if (thread == NULL) {
+        thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
+        if (thread == NULL) {
+            return NULL;
+        }
+        
+        thread->handle = current_handle;
+        thread->entry = NULL;
+        thread->arg = NULL;
+        // Mark as completed=true since this is a running thread
+        // This prevents _thread_destroy from trying to delete the current task
+        thread->completed = true;
+        thread->joined = false;
+        thread->joiner = NULL;
+        
+        // Store in task-local storage for future calls
+        vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);
+    }
     
     return (dmod_thread_t)thread;
 }
