@@ -1,5 +1,5 @@
 /*
- * Custom heap implementation for dmosi-freertos that redirects to DMOD allocator
+ * FreeRTOS heap implementation using DMOD allocator
  */
 
 #include "FreeRTOS.h"
@@ -24,20 +24,18 @@ void vPortFree(void* pv)
 
 size_t xPortGetFreeHeapSize(void)
 {
-    /* Not implemented - return 0 */
     return 0;
 }
 /*-----------------------------------------------------------*/
 
 size_t xPortGetMinimumEverFreeHeapSize(void)
 {
-    /* Not implemented - return 0 */
     return 0;
 }
 /*-----------------------------------------------------------*/
 
 void vPortInitialiseBlocks(void)
 {
-    /* Not needed for DMOD allocator */
+    /* Not needed */
 }
 /*-----------------------------------------------------------*/

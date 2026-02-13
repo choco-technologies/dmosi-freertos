@@ -32,17 +32,26 @@ struct dmod_thread {
 };
 
 /**
- * @brief Helper function to initialize thread structure
+ * @brief Helper function to create and initialize a new thread structure
  * 
- * @param thread Pointer to thread structure to initialize
+ * Allocates memory for the thread structure and initializes it.
+ * 
  * @param handle FreeRTOS task handle
  * @param entry Thread entry function (can be NULL)
  * @param arg Thread argument (can be NULL)
  * @param module_name Module name (can be NULL for default)
+ * @return Pointer to initialized thread structure, NULL on allocation failure
  */
-static void thread_init(struct dmod_thread* thread, TaskHandle_t handle, 
-                       dmod_thread_entry_t entry, void* arg, const char* module_name)
+static struct dmod_thread* thread_new(TaskHandle_t handle, 
+                                      dmod_thread_entry_t entry, 
+                                      void* arg, 
+                                      const char* module_name)
 {
+    struct dmod_thread* thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
+    if (thread == NULL) {
+        return NULL;
+    }
+    
     thread->handle = handle;
     thread->entry = entry;
     thread->arg = arg;
@@ -55,9 +64,11 @@ static void thread_init(struct dmod_thread* thread, TaskHandle_t handle,
         strncpy(thread->module_name, module_name, DMOD_MAX_MODULE_NAME_LENGTH - 1);
         thread->module_name[DMOD_MAX_MODULE_NAME_LENGTH - 1] = '\0';
     } else {
-        strncpy(thread->module_name, "system", DMOD_MAX_MODULE_NAME_LENGTH - 1);
+        strncpy(thread->module_name, DMOSI_SYSTEM_MODULE_NAME, DMOD_MAX_MODULE_NAME_LENGTH - 1);
         thread->module_name[DMOD_MAX_MODULE_NAME_LENGTH - 1] = '\0';
     }
+    
+    return thread;
 }
 
 /**
@@ -126,12 +137,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
         return NULL;
     }
 
-    struct dmod_thread* thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
+    struct dmod_thread* thread = thread_new(NULL, entry, arg, module_name);
     if (thread == NULL) {
         return NULL;
     }
-
-    thread_init(thread, NULL, entry, arg, module_name);
 
     // FreeRTOS stack size is in words, not bytes
     // Convert bytes to words (rounding up to ensure sufficient stack)
@@ -296,12 +305,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
     
     // If no structure exists, allocate and store one
     if (thread == NULL) {
-        thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
+        thread = thread_new(current_handle, NULL, NULL, DMOSI_SYSTEM_MODULE_NAME);
         if (thread == NULL) {
             return NULL;
         }
-        
-        thread_init(thread, current_handle, NULL, NULL, "system");
         
         // Store in task-local storage for future calls
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);

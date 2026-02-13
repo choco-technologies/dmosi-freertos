@@ -669,11 +669,9 @@
 /* Custom Memory Allocation Configuration *************************************/
 /******************************************************************************/
 
-/* Override FreeRTOS memory allocation to use DMOD memory allocator.
- * This ensures that FreeRTOS uses the same heap as the DMOD system,
- * providing unified memory management across the entire system.
- * 
- * The custom heap implementation (heap_dmod.c) calls Dmod_MallocEx directly
- * with the current thread's module name to track which module is allocating memory. */
+/* FreeRTOS memory allocation uses DMOD memory allocator.
+ * The heap implementation is provided in src/heap_dmod.c which calls
+ * Dmod_MallocEx directly with the current thread's module name to track
+ * which module is allocating memory. */
 
 #endif /* FREERTOS_CONFIG_H */

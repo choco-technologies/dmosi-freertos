@@ -89,7 +89,7 @@ if(NOT DEFINED FREERTOS_PORT)
     message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
 endif()
 
-# Set heap implementation (use custom DMOD heap)
+# Set heap implementation - use custom DMOD heap
 if(NOT DEFINED FREERTOS_HEAP)
     set(FREERTOS_HEAP "${CMAKE_CURRENT_SOURCE_DIR}/src/heap_dmod.c" CACHE STRING "FreeRTOS heap implementation")
 endif()
