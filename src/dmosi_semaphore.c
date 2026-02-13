@@ -137,7 +137,8 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_post, (dmosi_semaphore_t
     
     if (result != pdTRUE) {
         DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
+        return -EOVERFLOW;
     }
     
-    return (result == pdTRUE) ? 0 : -EOVERFLOW;
+    return 0;
 }
