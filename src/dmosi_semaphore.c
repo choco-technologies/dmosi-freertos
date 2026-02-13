@@ -31,21 +31,24 @@ struct dmosi_semaphore {
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_semaphore_t, _semaphore_create, (uint32_t initial_count, uint32_t max_count) )
 {
     if (max_count == 0 || initial_count > max_count) {
+        DMOD_LOG_ERROR("Invalid semaphore parameters: initial_count=%u, max_count=%u\n", initial_count, max_count);
         return NULL;
     }
 
-    struct dmosi_semaphore* semaphore = (struct dmosi_semaphore*)pvPortMalloc(sizeof(*semaphore));
+    struct dmosi_semaphore* semaphore = pvPortMalloc(sizeof(*semaphore));
     if (semaphore == NULL) {
+        DMOD_LOG_ERROR("Failed to allocate memory for semaphore\n");
         return NULL;
     }
 
     semaphore->handle = xSemaphoreCreateCounting(max_count, initial_count);
     if (semaphore->handle == NULL) {
+        DMOD_LOG_ERROR("Failed to create FreeRTOS counting semaphore\n");
         vPortFree(semaphore);
         return NULL;
     }
 
-    return (dmosi_semaphore_t)semaphore;
+    return semaphore;
 }
 
 /**
@@ -61,7 +64,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _semaphore_destroy, (dmosi_semapho
         return;
     }
 
-    struct dmosi_semaphore* sem = (struct dmosi_semaphore*)semaphore;
+    struct dmosi_semaphore* sem = semaphore;
     
     // Defensive check: handle should never be NULL for a valid semaphore,
     // but check anyway to prevent undefined behavior
@@ -85,10 +88,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _semaphore_destroy, (dmosi_semapho
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t semaphore, int32_t timeout_ms) )
 {
     if (semaphore == NULL) {
+        DMOD_LOG_ERROR("Invalid semaphore handle (NULL)\n");
         return -EINVAL;
     }
 
-    struct dmosi_semaphore* sem = (struct dmosi_semaphore*)semaphore;
+    struct dmosi_semaphore* sem = semaphore;
     TickType_t ticks;
     
     if (timeout_ms < 0) {
@@ -124,11 +128,16 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_post, (dmosi_semaphore_t semaphore) )
 {
     if (semaphore == NULL) {
+        DMOD_LOG_ERROR("Invalid semaphore handle (NULL)\n");
         return -EINVAL;
     }
 
-    struct dmosi_semaphore* sem = (struct dmosi_semaphore*)semaphore;
+    struct dmosi_semaphore* sem = semaphore;
     BaseType_t result = xSemaphoreGive(sem->handle);
+    
+    if (result != pdTRUE) {
+        DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
+    }
     
     return (result == pdTRUE) ? 0 : -EOVERFLOW;
 }
