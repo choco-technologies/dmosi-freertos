@@ -74,8 +74,12 @@ add_library(freertos_config INTERFACE)
 target_include_directories(freertos_config
     INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config>
-    $<BUILD_INTERFACE:${dmod_SOURCE_DIR}/inc>
-    $<BUILD_INTERFACE:${dmod_BINARY_DIR}>
+)
+
+# Link with dmod to get its include directories transitively
+target_link_libraries(freertos_config
+    INTERFACE
+    dmod
 )
 
 # Set default FREERTOS_PORT if not defined (for standalone builds)
