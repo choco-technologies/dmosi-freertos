@@ -98,6 +98,7 @@ add_library(dmosi_freertos STATIC
     src/dmosi_mutex.c
     src/dmosi_thread.c
     src/dmosi_semaphore.c
+    src/dmosi_queue.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
