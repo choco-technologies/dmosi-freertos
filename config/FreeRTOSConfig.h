@@ -670,8 +670,7 @@
 /******************************************************************************/
 
 /* FreeRTOS memory allocation uses DMOD memory allocator.
- * The heap implementation is provided in src/heap_dmod.c which calls
- * Dmod_MallocEx directly with the current thread's module name to track
- * which module is allocating memory. */
+ * Implementations are in dmosi_freertos.c which call Dmod_MallocEx directly
+ * with module name tracking. */
 
 #endif /* FREERTOS_CONFIG_H */
