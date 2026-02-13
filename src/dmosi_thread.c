@@ -287,8 +287,8 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
         thread->completed = true;
         thread->joined = false;
         thread->joiner = NULL;
-        thread->name = NULL;
-        thread->module_name = NULL;
+        thread->name = "main";  // Default name for threads not created via dmosi_thread_create
+        thread->module_name = "system";  // Default module name for system/main threads
         
         // Store in task-local storage for future calls
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);

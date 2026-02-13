@@ -13,6 +13,12 @@
 void* dmosi_port_malloc(size_t size)
 {
     const char* module_name = dmosi_thread_get_module_name(NULL);
+    
+    // Provide a fallback module name if none is available
+    if (module_name == NULL) {
+        module_name = "unknown";
+    }
+    
     return Dmod_MallocEx(size, module_name);
 }
 
