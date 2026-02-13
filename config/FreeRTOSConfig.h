@@ -665,4 +665,16 @@
 #define INCLUDE_xTaskGetHandle                 0
 #define INCLUDE_xTaskResumeFromISR             1
 
+/******************************************************************************/
+/* Custom Memory Allocation Configuration *************************************/
+/******************************************************************************/
+
+/* Override FreeRTOS memory allocation to use DMOD memory allocator.
+ * This ensures that FreeRTOS uses the same heap as the DMOD system,
+ * providing unified memory management across the entire system. */
+#include "dmod_sal.h"
+
+#define pvPortMalloc(size)    Dmod_Malloc(size)
+#define vPortFree(ptr)        Dmod_Free(ptr)
+
 #endif /* FREERTOS_CONFIG_H */
