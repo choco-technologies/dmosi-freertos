@@ -26,6 +26,8 @@ struct dmod_thread {
     bool completed;                /**< Whether thread has completed execution */
     bool joined;                   /**< Whether thread has been joined */
     TaskHandle_t joiner;           /**< Handle of task waiting to join */
+    const char* name;              /**< Thread name */
+    const char* module_name;       /**< Module name that created the thread */
 };
 
 /**
@@ -84,11 +86,13 @@ static void thread_wrapper(void* pvParameters)
  * @param arg Argument to pass to the entry function
  * @param priority Thread priority
  * @param stack_size Stack size for the thread in bytes
+ * @param name Name of the thread (cannot be NULL)
+ * @param module_name Name of the module creating the thread (for tracking allocations)
  * @return dmod_thread_t Created thread handle, NULL on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thread_entry_t entry, void* arg, int priority, size_t stack_size) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thread_entry_t entry, void* arg, int priority, size_t stack_size, const char* name, const char* module_name) )
 {
-    if (entry == NULL || stack_size == 0) {
+    if (entry == NULL || stack_size == 0 || name == NULL) {
         return NULL;
     }
 
@@ -102,6 +106,8 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
     thread->completed = false;
     thread->joined = false;
     thread->joiner = NULL;
+    thread->name = name;
+    thread->module_name = module_name;
 
     // FreeRTOS stack size is in words, not bytes
     // Convert bytes to words (rounding up to ensure sufficient stack)
@@ -109,7 +115,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
     
     BaseType_t result = xTaskCreate(
         thread_wrapper,
-        "dmod_thread",
+        name,  // Use the provided name instead of generic "dmod_thread"
         stack_words,
         thread,
         priority,
@@ -281,6 +287,8 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
         thread->completed = true;
         thread->joined = false;
         thread->joiner = NULL;
+        thread->name = NULL;
+        thread->module_name = NULL;
         
         // Store in task-local storage for future calls
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);
@@ -307,4 +315,51 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_sleep, (uint32_t ms) )
     }
     
     vTaskDelay(ticks);
+}
+
+/**
+ * @brief Get thread name
+ * 
+ * Returns the name of the specified thread, or the current thread if NULL.
+ * 
+ * @param thread Thread handle (if NULL, returns name of current thread)
+ * @return const char* Thread name, NULL on failure
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_name, (dmod_thread_t thread) )
+{
+    struct dmod_thread* thrd = (struct dmod_thread*)thread;
+    
+    // If thread is NULL, get current thread
+    if (thrd == NULL) {
+        thrd = (struct dmod_thread*)dmosi_thread_current();
+        if (thrd == NULL) {
+            return NULL;
+        }
+    }
+    
+    return thrd->name;
+}
+
+/**
+ * @brief Get thread module name
+ * 
+ * Returns the module name that created the specified thread, or the current
+ * thread if NULL.
+ * 
+ * @param thread Thread handle (if NULL, returns module name of current thread)
+ * @return const char* Module name that created the thread, NULL on failure
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (dmod_thread_t thread) )
+{
+    struct dmod_thread* thrd = (struct dmod_thread*)thread;
+    
+    // If thread is NULL, get current thread
+    if (thrd == NULL) {
+        thrd = (struct dmod_thread*)dmosi_thread_current();
+        if (thrd == NULL) {
+            return NULL;
+        }
+    }
+    
+    return thrd->module_name;
 }

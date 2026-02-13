@@ -671,10 +671,16 @@
 
 /* Override FreeRTOS memory allocation to use DMOD memory allocator.
  * This ensures that FreeRTOS uses the same heap as the DMOD system,
- * providing unified memory management across the entire system. */
-#include "dmod_sal.h"
+ * providing unified memory management across the entire system.
+ * 
+ * We use wrapper functions that call Dmod_MallocEx with the current thread's
+ * module name to track which module is allocating memory. */
 
-#define pvPortMalloc(size)    Dmod_Malloc(size)
-#define vPortFree(ptr)        Dmod_Free(ptr)
+/* Forward declarations of wrapper functions */
+void* dmosi_port_malloc(size_t size);
+void dmosi_port_free(void* ptr);
+
+#define pvPortMalloc(size)    dmosi_port_malloc(size)
+#define vPortFree(ptr)        dmosi_port_free(ptr)
 
 #endif /* FREERTOS_CONFIG_H */
