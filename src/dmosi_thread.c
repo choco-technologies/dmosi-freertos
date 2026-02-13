@@ -1,7 +1,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include <errno.h>
 #include "dmosi.h"
+#include "dmod.h"
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -26,9 +28,37 @@ struct dmod_thread {
     bool completed;                /**< Whether thread has completed execution */
     bool joined;                   /**< Whether thread has been joined */
     TaskHandle_t joiner;           /**< Handle of task waiting to join */
-    const char* name;              /**< Thread name */
-    const char* module_name;       /**< Module name that created the thread */
+    char module_name[DMOD_MAX_MODULE_NAME_LENGTH];  /**< Module name that created the thread */
 };
+
+/**
+ * @brief Helper function to initialize thread structure
+ * 
+ * @param thread Pointer to thread structure to initialize
+ * @param handle FreeRTOS task handle
+ * @param entry Thread entry function (can be NULL)
+ * @param arg Thread argument (can be NULL)
+ * @param module_name Module name (can be NULL for default)
+ */
+static void thread_init(struct dmod_thread* thread, TaskHandle_t handle, 
+                       dmod_thread_entry_t entry, void* arg, const char* module_name)
+{
+    thread->handle = handle;
+    thread->entry = entry;
+    thread->arg = arg;
+    thread->completed = (entry == NULL);  // Mark as completed if no entry (e.g., main thread)
+    thread->joined = false;
+    thread->joiner = NULL;
+    
+    // Copy module name safely
+    if (module_name != NULL) {
+        strncpy(thread->module_name, module_name, DMOD_MAX_MODULE_NAME_LENGTH - 1);
+        thread->module_name[DMOD_MAX_MODULE_NAME_LENGTH - 1] = '\0';
+    } else {
+        strncpy(thread->module_name, "system", DMOD_MAX_MODULE_NAME_LENGTH - 1);
+        thread->module_name[DMOD_MAX_MODULE_NAME_LENGTH - 1] = '\0';
+    }
+}
 
 /**
  * @brief Wrapper function for FreeRTOS task entry
@@ -101,13 +131,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
         return NULL;
     }
 
-    thread->entry = entry;
-    thread->arg = arg;
-    thread->completed = false;
-    thread->joined = false;
-    thread->joiner = NULL;
-    thread->name = name;
-    thread->module_name = module_name;
+    thread_init(thread, NULL, entry, arg, module_name);
 
     // FreeRTOS stack size is in words, not bytes
     // Convert bytes to words (rounding up to ensure sufficient stack)
@@ -115,7 +139,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
     
     BaseType_t result = xTaskCreate(
         thread_wrapper,
-        name,  // Use the provided name instead of generic "dmod_thread"
+        name,
         stack_words,
         thread,
         priority,
@@ -149,27 +173,26 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmod_thread_t th
         return;
     }
 
-    struct dmod_thread* thrd = (struct dmod_thread*)thread;
     TaskHandle_t current = xTaskGetCurrentTaskHandle();
     
     // Clear the task-local storage pointer if this is the current thread
     // or if the task is still valid
-    if (thrd->handle != NULL) {
+    if (thread->handle != NULL) {
         // Check if the task-local storage still points to this structure
-        void* stored = pvTaskGetThreadLocalStoragePointer(thrd->handle, DMOD_THREAD_TLS_INDEX);
-        if (stored == thrd) {
-            vTaskSetThreadLocalStoragePointer(thrd->handle, DMOD_THREAD_TLS_INDEX, NULL);
+        void* stored = pvTaskGetThreadLocalStoragePointer(thread->handle, DMOD_THREAD_TLS_INDEX);
+        if (stored == thread) {
+            vTaskSetThreadLocalStoragePointer(thread->handle, DMOD_THREAD_TLS_INDEX, NULL);
         }
     }
     
     // Only delete the task if:
     // 1. It hasn't completed yet (completed is false)
     // 2. It's not the current thread (to avoid self-deletion)
-    if (!thrd->completed && thrd->handle != NULL && thrd->handle != current) {
-        vTaskDelete(thrd->handle);
+    if (!thread->completed && thread->handle != NULL && thread->handle != current) {
+        vTaskDelete(thread->handle);
     }
     
-    vPortFree(thrd);
+    vPortFree(thread);
 }
 
 /**
@@ -187,28 +210,27 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
         return -EINVAL;
     }
 
-    struct dmod_thread* thrd = (struct dmod_thread*)thread;
     bool already_completed = false;
     
     // Check if already joined or set joiner atomically
     taskENTER_CRITICAL();
     
-    if (thrd->joined) {
+    if (thread->joined) {
         taskEXIT_CRITICAL();
         return -EINVAL;  // Already joined
     }
     
-    if (thrd->joiner != NULL) {
+    if (thread->joiner != NULL) {
         taskEXIT_CRITICAL();
         return -EBUSY;  // Another task is already joining
     }
     
     // Check if thread already completed
-    already_completed = thrd->completed;
+    already_completed = thread->completed;
     
     if (!already_completed) {
         // Set the joiner to the current task
-        thrd->joiner = xTaskGetCurrentTaskHandle();
+        thread->joiner = xTaskGetCurrentTaskHandle();
     }
     
     taskEXIT_CRITICAL();
@@ -222,7 +244,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
         // Double-check that the thread has actually completed
         // This guards against spurious notifications
         taskENTER_CRITICAL();
-        while (!thrd->completed) {
+        while (!thread->completed) {
             taskEXIT_CRITICAL();
             // If not completed, wait again
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -233,7 +255,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
 
     // Thread has completed, mark as joined
     taskENTER_CRITICAL();
-    thrd->joined = true;
+    thread->joined = true;
     taskEXIT_CRITICAL();
     
     return 0;
@@ -279,16 +301,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
             return NULL;
         }
         
-        thread->handle = current_handle;
-        thread->entry = NULL;
-        thread->arg = NULL;
-        // Mark as completed=true since this is a running thread
-        // This prevents _thread_destroy from trying to delete the current task
-        thread->completed = true;
-        thread->joined = false;
-        thread->joiner = NULL;
-        thread->name = "main";  // Default name for threads not created via dmosi_thread_create
-        thread->module_name = "system";  // Default module name for system/main threads
+        thread_init(thread, current_handle, NULL, NULL, "system");
         
         // Store in task-local storage for future calls
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);
@@ -327,17 +340,16 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_sleep, (uint32_t ms) )
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_name, (dmod_thread_t thread) )
 {
-    struct dmod_thread* thrd = (struct dmod_thread*)thread;
-    
     // If thread is NULL, get current thread
-    if (thrd == NULL) {
-        thrd = (struct dmod_thread*)dmosi_thread_current();
-        if (thrd == NULL) {
+    if (thread == NULL) {
+        thread = dmosi_thread_current();
+        if (thread == NULL) {
             return NULL;
         }
     }
     
-    return thrd->name;
+    // Get name from FreeRTOS (FreeRTOS stores the name)
+    return pcTaskGetName(thread->handle);
 }
 
 /**
@@ -351,15 +363,13 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_name, (dmod_thr
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (dmod_thread_t thread) )
 {
-    struct dmod_thread* thrd = (struct dmod_thread*)thread;
-    
     // If thread is NULL, get current thread
-    if (thrd == NULL) {
-        thrd = (struct dmod_thread*)dmosi_thread_current();
-        if (thrd == NULL) {
+    if (thread == NULL) {
+        thread = dmosi_thread_current();
+        if (thread == NULL) {
             return NULL;
         }
     }
     
-    return thrd->module_name;
+    return thread->module_name;
 }

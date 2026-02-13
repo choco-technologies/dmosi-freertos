@@ -76,10 +76,11 @@ target_include_directories(freertos_config
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config>
 )
 
-# Link with dmod to get its include directories transitively
+# Link with dmod and dmosi to get their include directories transitively
 target_link_libraries(freertos_config
     INTERFACE
     dmod
+    dmosi
 )
 
 # Set default FREERTOS_PORT if not defined (for standalone builds)
@@ -88,9 +89,9 @@ if(NOT DEFINED FREERTOS_PORT)
     message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
 endif()
 
-# Set heap implementation
+# Set heap implementation (use custom DMOD heap)
 if(NOT DEFINED FREERTOS_HEAP)
-    set(FREERTOS_HEAP "4" CACHE STRING "FreeRTOS heap implementation")
+    set(FREERTOS_HEAP "${CMAKE_CURRENT_SOURCE_DIR}/src/heap_dmod.c" CACHE STRING "FreeRTOS heap implementation")
 endif()
 
 # Add FreeRTOS subdirectory
@@ -105,7 +106,6 @@ add_library(dmosi_freertos STATIC
     src/dmosi_thread.c
     src/dmosi_semaphore.c
     src/dmosi_queue.c
-    src/dmosi_malloc.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
