@@ -63,16 +63,14 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _semaphore_destroy, (dmosi_semapho
     if (semaphore == NULL) {
         return;
     }
-
-    struct dmosi_semaphore* sem = semaphore;
     
     // Defensive check: handle should never be NULL for a valid semaphore,
     // but check anyway to prevent undefined behavior
-    if (sem->handle != NULL) {
-        vSemaphoreDelete(sem->handle);
+    if (semaphore->handle != NULL) {
+        vSemaphoreDelete(semaphore->handle);
     }
     
-    vPortFree(sem);
+    vPortFree(semaphore);
 }
 
 /**
@@ -92,7 +90,6 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
         return -EINVAL;
     }
 
-    struct dmosi_semaphore* sem = semaphore;
     TickType_t ticks;
     
     if (timeout_ms < 0) {
@@ -106,7 +103,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
         ticks = pdMS_TO_TICKS(timeout_ms);
     }
 
-    BaseType_t result = xSemaphoreTake(sem->handle, ticks);
+    BaseType_t result = xSemaphoreTake(semaphore->handle, ticks);
     
     if (result == pdTRUE) {
         return 0;
@@ -132,8 +129,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_post, (dmosi_semaphore_t
         return -EINVAL;
     }
 
-    struct dmosi_semaphore* sem = semaphore;
-    BaseType_t result = xSemaphoreGive(sem->handle);
+    BaseType_t result = xSemaphoreGive(semaphore->handle);
     
     if (result != pdTRUE) {
         DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
