@@ -665,26 +665,4 @@
 #define INCLUDE_xTaskGetHandle                 0
 #define INCLUDE_xTaskResumeFromISR             1
 
-/******************************************************************************/
-/* Custom Memory Allocation Configuration *************************************/
-/******************************************************************************/
-
-/* FreeRTOS memory allocation uses DMOD memory allocator.
- * Macros redirect pvPortMalloc/vPortFree to call Dmod_MallocEx directly. */
-
-#include "dmod_sal.h"
-#include "dmosi.h"
-
-/* Helper function to avoid issues with macro expansion in declarations */
-static inline void* _pvPortMalloc_impl(size_t size) {
-    return Dmod_MallocEx(size, dmosi_thread_get_module_name(NULL));
-}
-
-static inline void _vPortFree_impl(void* ptr) {
-    Dmod_Free(ptr);
-}
-
-#define pvPortMalloc(size)      _pvPortMalloc_impl(size)
-#define vPortFree(ptr)          _vPortFree_impl(ptr)
-
 #endif /* FREERTOS_CONFIG_H */
