@@ -29,6 +29,7 @@ struct dmod_thread {
     bool joined;                   /**< Whether thread has been joined */
     TaskHandle_t joiner;           /**< Handle of task waiting to join */
     char module_name[DMOD_MAX_MODULE_NAME_LENGTH];  /**< Module name that created the thread */
+    dmod_process_t process;        /**< Process that the thread belongs to */
 };
 
 /**
@@ -40,12 +41,14 @@ struct dmod_thread {
  * @param entry Thread entry function (can be NULL)
  * @param arg Thread argument (can be NULL)
  * @param module_name Module name (can be NULL for default)
+ * @param process Process to associate the thread with (can be NULL)
  * @return Pointer to initialized thread structure, NULL on allocation failure
  */
 static struct dmod_thread* thread_new(TaskHandle_t handle, 
                                       dmod_thread_entry_t entry, 
                                       void* arg, 
-                                      const char* module_name)
+                                      const char* module_name,
+                                      dmod_process_t process)
 {
     struct dmod_thread* thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
     if (thread == NULL) {
@@ -58,6 +61,7 @@ static struct dmod_thread* thread_new(TaskHandle_t handle,
     thread->completed = (entry == NULL);  // Mark as completed if no entry (e.g., main thread)
     thread->joined = false;
     thread->joiner = NULL;
+    thread->process = process;
     
     // Copy module name safely
     if (module_name != NULL) {
@@ -129,15 +133,21 @@ static void thread_wrapper(void* pvParameters)
  * @param stack_size Stack size for the thread in bytes
  * @param name Name of the thread (cannot be NULL)
  * @param module_name Name of the module creating the thread (for tracking allocations)
+ * @param process Process to associate the thread with (NULL = current process)
  * @return dmod_thread_t Created thread handle, NULL on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thread_entry_t entry, void* arg, int priority, size_t stack_size, const char* name, const char* module_name) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thread_entry_t entry, void* arg, int priority, size_t stack_size, const char* name, const char* module_name, dmod_process_t process) )
 {
     if (entry == NULL || stack_size == 0 || name == NULL) {
         return NULL;
     }
 
-    struct dmod_thread* thread = thread_new(NULL, entry, arg, module_name);
+    // If no process provided, use the current process
+    if (process == NULL) {
+        process = dmosi_process_current();
+    }
+
+    struct dmod_thread* thread = thread_new(NULL, entry, arg, module_name, process);
     if (thread == NULL) {
         return NULL;
     }
@@ -305,7 +315,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
     
     // If no structure exists, allocate and store one
     if (thread == NULL) {
-        thread = thread_new(current_handle, NULL, NULL, DMOSI_SYSTEM_MODULE_NAME);
+        thread = thread_new(current_handle, NULL, NULL, DMOSI_SYSTEM_MODULE_NAME, dmosi_process_current());
         if (thread == NULL) {
             return NULL;
         }
@@ -379,4 +389,47 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (d
     }
     
     return thread->module_name;
+}
+
+/**
+ * @brief Get thread priority
+ * 
+ * Returns the priority of the specified thread, or the current thread if NULL.
+ * 
+ * @param thread Thread handle (if NULL, returns priority of current thread)
+ * @return int Thread priority, or 0 on failure
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_get_priority, (dmod_thread_t thread) )
+{
+    // If thread is NULL, get current thread
+    if (thread == NULL) {
+        thread = dmosi_thread_current();
+        if (thread == NULL) {
+            return 0;
+        }
+    }
+
+    return (int)uxTaskPriorityGet(thread->handle);
+}
+
+/**
+ * @brief Get thread's associated process
+ * 
+ * Returns the process handle that the specified thread belongs to, or the
+ * current thread's process if NULL.
+ * 
+ * @param thread Thread handle (if NULL, returns process of current thread)
+ * @return dmod_process_t Process handle that the thread belongs to, NULL on failure
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_process_t, _thread_get_process, (dmod_thread_t thread) )
+{
+    // If thread is NULL, get current thread
+    if (thread == NULL) {
+        thread = dmosi_thread_current();
+        if (thread == NULL) {
+            return NULL;
+        }
+    }
+
+    return thread->process;
 }
