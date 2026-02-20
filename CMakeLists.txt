@@ -102,6 +102,7 @@ add_library(dmosi_freertos STATIC
     src/dmosi_semaphore.c
     src/dmosi_queue.c
     src/dmosi_heap.c
+    src/dmosi_timer.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
