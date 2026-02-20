@@ -103,12 +103,15 @@ add_library(dmosi_freertos STATIC
     src/dmosi_queue.c
     src/dmosi_heap.c
     src/dmosi_timer.c
+    src/dmosi_process.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/lib/freertos/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config>
+    PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
 target_link_libraries(dmosi_freertos PUBLIC

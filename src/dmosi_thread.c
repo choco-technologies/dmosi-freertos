@@ -2,35 +2,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <errno.h>
-#include "dmosi.h"
-#include "dmod.h"
-#include "FreeRTOS.h"
-#include "task.h"
-
-/**
- * @brief Task-local storage index for storing dmod_thread structure
- * 
- * This index is used to store and retrieve the dmod_thread structure
- * associated with each FreeRTOS task.
- */
-#define DMOD_THREAD_TLS_INDEX    0
-
-/**
- * @brief Internal structure to wrap FreeRTOS task handle
- * 
- * This structure wraps the FreeRTOS TaskHandle_t and stores thread-related
- * information needed for thread management operations.
- */
-struct dmod_thread {
-    TaskHandle_t handle;           /**< FreeRTOS task handle */
-    dmod_thread_entry_t entry;     /**< Thread entry function */
-    void* arg;                     /**< Argument passed to thread entry */
-    bool completed;                /**< Whether thread has completed execution */
-    bool joined;                   /**< Whether thread has been joined */
-    TaskHandle_t joiner;           /**< Handle of task waiting to join */
-    char module_name[DMOD_MAX_MODULE_NAME_LENGTH];  /**< Module name that created the thread */
-    dmod_process_t process;        /**< Process that the thread belongs to */
-};
+#include "dmosi_freertos_internal.h"
 
 /**
  * @brief Helper function to create and initialize a new thread structure
