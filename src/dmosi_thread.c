@@ -28,48 +28,7 @@ struct dmosi_thread {
     bool joined;                      /**< Whether thread has been joined */
     TaskHandle_t joiner;              /**< Handle of task waiting to join */
     dmosi_process_t process;          /**< Process that the thread belongs to */
-    struct dmosi_thread* next;        /**< Next thread in the global list */
 };
-
-/**
- * @brief Global list of all active thread structures
- *
- * Protected by FreeRTOS critical sections.
- */
-static struct dmosi_thread* thread_list_head = NULL;
-
-/**
- * @brief Add a thread to the global thread list
- *
- * @param thread Thread structure to register
- */
-static void thread_list_add(struct dmosi_thread* thread)
-{
-    taskENTER_CRITICAL();
-    thread->next = thread_list_head;
-    thread_list_head = thread;
-    taskEXIT_CRITICAL();
-}
-
-/**
- * @brief Remove a thread from the global thread list
- *
- * @param thread Thread structure to deregister
- */
-static void thread_list_remove(struct dmosi_thread* thread)
-{
-    taskENTER_CRITICAL();
-    struct dmosi_thread** pp = &thread_list_head;
-    while (*pp != NULL) {
-        if (*pp == thread) {
-            *pp = thread->next;
-            thread->next = NULL;
-            break;
-        }
-        pp = &(*pp)->next;
-    }
-    taskEXIT_CRITICAL();
-}
 
 /**
  * @brief Helper function to create and initialize a new thread structure
@@ -99,7 +58,6 @@ static struct dmosi_thread* thread_new(TaskHandle_t handle,
     thread->joined = false;
     thread->joiner = NULL;
     thread->process = process;
-    thread->next = NULL;
     
     return thread;
 }
@@ -198,7 +156,6 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
         return NULL;
     }
 
-    thread_list_add(thread);
     return (dmosi_thread_t)thread;
 }
 
@@ -240,7 +197,6 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmosi_thread_t t
         vTaskDelete(thread->handle);
     }
     
-    thread_list_remove(thread);
     vPortFree(thread);
 }
 
@@ -352,7 +308,6 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_current, (void) 
         
         // Store in task-local storage for future calls
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);
-        thread_list_add(thread);
     }
     
     return (dmosi_thread_t)thread;
@@ -510,9 +465,68 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_kill, (dmosi_thread_t threa
 }
 
 /**
+ * @brief Safety margin added to the task-array allocation to guard against
+ *        tasks being created between uxTaskGetNumberOfTasks() and
+ *        uxTaskGetSystemState().
+ */
+#define THREAD_ENUM_MARGIN    4
+
+/**
+ * @brief Enumerate all FreeRTOS tasks that have a dmosi_thread in TLS.
+ *
+ * Allocates a temporary TaskStatus_t array, calls uxTaskGetSystemState(), and
+ * for each task whose TLS slot 0 is non-NULL, optionally writes the handle to
+ * @p threads up to @p max_count entries.
+ *
+ * @param process  Filter: only include threads whose process matches this value.
+ *                 Pass NULL to include threads regardless of process.
+ * @param threads  Output array, or NULL for a count-only query.
+ * @param max_count Maximum entries to write into @p threads.
+ * @return Number of matching threads found, capped at @p max_count when @p threads
+ *         is non-NULL.
+ */
+static size_t thread_enumerate(dmosi_process_t process, dmosi_thread_t* threads, size_t max_count)
+{
+    // Add a small margin to guard against new tasks being created between the
+    // count query and the actual enumeration call.
+    UBaseType_t alloc_count = uxTaskGetNumberOfTasks() + THREAD_ENUM_MARGIN;
+    TaskStatus_t* task_array = (TaskStatus_t*)pvPortMalloc(alloc_count * sizeof(TaskStatus_t));
+    if (task_array == NULL) {
+        return 0;
+    }
+
+    UBaseType_t filled = uxTaskGetSystemState(task_array, alloc_count, NULL);
+    size_t count = 0;
+
+    for (UBaseType_t i = 0; i < filled; i++) {
+        struct dmosi_thread* t = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(
+            task_array[i].xHandle, DMOD_THREAD_TLS_INDEX);
+        if (t == NULL) {
+            continue;
+        }
+        if (process != NULL && t->process != process) {
+            continue;
+        }
+        if (threads != NULL && count < max_count) {
+            threads[count] = (dmosi_thread_t)t;
+        }
+        count++;
+    }
+
+    vPortFree(task_array);
+
+    // When writing to the array, cap the return value at the number of handles written.
+    if (threads != NULL && count > max_count) {
+        return max_count;
+    }
+    return count;
+}
+
+/**
  * @brief Get an array of all threads
  *
- * Fills the provided array with handles of all existing threads.
+ * Fills the provided array with handles of all existing threads by enumerating
+ * FreeRTOS tasks and retrieving the dmosi_thread structure stored in TLS.
  * If @p threads is NULL, returns the total number of threads.
  *
  * @param threads Pointer to array to fill, or NULL to query count only
@@ -521,32 +535,14 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_kill, (dmosi_thread_t threa
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_all, (dmosi_thread_t* threads, size_t max_count) )
 {
-    size_t count = 0;
-
-    taskENTER_CRITICAL();
-    struct dmosi_thread* t = thread_list_head;
-    while (t != NULL) {
-        if (threads != NULL) {
-            if (count < max_count) {
-                threads[count] = (dmosi_thread_t)t;
-            }
-        }
-        count++;
-        t = t->next;
-    }
-    taskEXIT_CRITICAL();
-
-    // When writing to the array, return the number of handles actually written
-    if (threads != NULL && count > max_count) {
-        return max_count;
-    }
-    return count;
+    return thread_enumerate(NULL, threads, max_count);
 }
 
 /**
  * @brief Get an array of threads belonging to a specific process
  *
- * Fills the provided array with handles of all threads associated with @p process.
+ * Fills the provided array with handles of all threads associated with @p process
+ * by enumerating FreeRTOS tasks and checking the dmosi_thread structure in TLS.
  * If @p threads is NULL, returns the number of threads in that process.
  *
  * @param process Process handle whose threads to retrieve
@@ -556,26 +552,5 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_all, (dmosi_thread_t
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_by_process, (dmosi_process_t process, dmosi_thread_t* threads, size_t max_count) )
 {
-    size_t count = 0;
-
-    taskENTER_CRITICAL();
-    struct dmosi_thread* t = thread_list_head;
-    while (t != NULL) {
-        if (t->process == process) {
-            if (threads != NULL) {
-                if (count < max_count) {
-                    threads[count] = (dmosi_thread_t)t;
-                }
-            }
-            count++;
-        }
-        t = t->next;
-    }
-    taskEXIT_CRITICAL();
-
-    // When writing to the array, return the number of handles actually written
-    if (threads != NULL && count > max_count) {
-        return max_count;
-    }
-    return count;
+    return thread_enumerate(process, threads, max_count);
 }
