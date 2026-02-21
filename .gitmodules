@@ -1,3 +1,6 @@
 [submodule "lib/freertos"]
 	path = lib/freertos
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+[submodule "lib/dmosi-proc"]
+	path = lib/dmosi-proc
+	url = https://github.com/choco-technologies/dmosi-proc.git
