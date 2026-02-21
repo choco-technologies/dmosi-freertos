@@ -113,41 +113,29 @@ target_link_libraries(my_app PRIVATE dmosi_freertos)
 
 ### Initialisation
 
-Call `dmosi_init()` once before starting the FreeRTOS scheduler and before any other DMOSI API:
+`dmosi_init()` must be called from within a running task, once the scheduler is already active and before any other DMOSI API is used. `dmosi_deinit()` should be called before the task exits to release resources.
 
 ```c
 #include "dmosi.h"
 
-int main(void)
+/* Called by the platform as the initial application task */
+void app_entry(void *arg)
 {
     if (!dmosi_init()) {
         /* handle error */
+        return;
     }
 
-    /* create tasks, queues, etc. */
+    /* create threads, queues, timers, etc. using DMOSI APIs */
 
-    vTaskStartScheduler();
+    /* ... application runs here ... */
 
+    /* call dmosi_deinit() when the application is shutting down */
     dmosi_deinit();
-    return 0;
 }
 ```
 
-`dmosi_init()` creates an internal *system* process for the startup task and bootstraps thread-local storage so that all subsequent DMOSI calls can identify the calling thread. `dmosi_deinit()` reverses this when the scheduler exits.
-
-## Configuration
-
-Copy `config/FreeRTOSConfig.h` into your project and adjust the values for your target (clock frequency, tick rate, heap size, stack depths, etc.). The file must be on the compiler include path before the FreeRTOS-Kernel headers.
-
-The most commonly changed values are:
-
-| Macro | Description |
-|-------|-------------|
-| `configCPU_CLOCK_HZ` | Core clock frequency in Hz |
-| `configTICK_RATE_HZ` | Scheduler tick rate (default 1000 Hz) |
-| `configMINIMAL_STACK_SIZE` | Minimum task stack size in words |
-| `configMAX_PRIORITIES` | Number of task priority levels |
-| `configNUM_THREAD_LOCAL_STORAGE_POINTERS` | Must be **≥ 1** (index 0 is used internally) |
+`dmosi_init()` creates an internal *system* process and bootstraps thread-local storage for the calling task so that all subsequent DMOSI calls can identify the running thread. `dmosi_deinit()` reverses this when the application is done.
 
 ## API summary
 
