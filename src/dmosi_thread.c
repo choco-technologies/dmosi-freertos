@@ -15,6 +15,21 @@
 #define DMOD_THREAD_TLS_INDEX    0
 
 /**
+ * @brief Fallback process used during system initialization
+ *
+ * Set by dmosi_thread_set_init_process() before the first call to
+ * dmosi_thread_current(), so that the lazy-init path in _thread_current
+ * does not need to call dmosi_process_current() and trigger infinite
+ * recursion while the scheduler has not yet associated any process with
+ * the running task.
+ *
+ * @note This variable is only written from dmosi_freertos _init/_deinit,
+ * which must be called before the FreeRTOS scheduler is started (i.e., in
+ * a single-threaded context). No synchronization is therefore required.
+ */
+static dmosi_process_t g_init_process = NULL;
+
+/**
  * @brief Internal structure to wrap FreeRTOS task handle
  * 
  * This structure wraps the FreeRTOS TaskHandle_t and stores thread-related
@@ -306,7 +321,12 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_current, (void) 
     
     // If no structure exists, allocate and store one
     if (thread == NULL) {
-        thread = thread_new(current_handle, NULL, NULL, dmosi_process_current());
+        // Use g_init_process as a fallback during system initialization to break
+        // the circular dependency: _thread_current -> _process_current -> _thread_current.
+        // Once init is complete, g_init_process is cleared and subsequent tasks
+        // created via dmosi_thread_create already have TLS populated.
+        dmosi_process_t process = (g_init_process != NULL) ? g_init_process : dmosi_process_current();
+        thread = thread_new(current_handle, NULL, NULL, process);
         if (thread == NULL) {
             return NULL;
         }
@@ -558,4 +578,53 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_all, (dmosi_thread_t
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_by_process, (dmosi_process_t process, dmosi_thread_t* threads, size_t max_count) )
 {
     return thread_enumerate(process, threads, max_count);
+}
+
+//==============================================================================
+//                              Initialization helpers
+//==============================================================================
+
+/**
+ * @brief Set the fallback process used during system initialization
+ *
+ * Must be called from dmosi_freertos _init before any other dmosi API that
+ * could trigger dmosi_thread_current(), so that the lazy-init path in
+ * _thread_current can associate the task with the correct process without
+ * causing infinite recursion through dmosi_process_current().
+ *
+ * Pass NULL to clear the fallback after initialization is complete.
+ *
+ * @note This function is only called from _init/_deinit, which run before
+ * the FreeRTOS scheduler starts (single-threaded context). No
+ * synchronization is needed.
+ *
+ * @param process Process handle to use as fallback (NULL to clear)
+ */
+void dmosi_thread_set_init_process(dmosi_process_t process)
+{
+    g_init_process = process;
+}
+
+/**
+ * @brief Unregister the current task's dmosi thread and clear TLS
+ *
+ * Clears the TLS entry for the running task and frees the associated
+ * dmosi_thread structure.  Called from dmosi_freertos _deinit to clean
+ * up the thread that was implicitly registered for the main task during
+ * _init.
+ */
+void dmosi_thread_unregister_current(void)
+{
+    TaskHandle_t current_handle = xTaskGetCurrentTaskHandle();
+    if (current_handle == NULL) {
+        return;
+    }
+
+    struct dmosi_thread* thread = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(
+        current_handle, DMOD_THREAD_TLS_INDEX);
+
+    if (thread != NULL) {
+        vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, NULL);
+        vPortFree(thread);
+    }
 }
