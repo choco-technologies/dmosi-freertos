@@ -435,17 +435,6 @@ static void test_task( void * pvParameters )
     printf( "  DMOSI FreeRTOS Implementation Tests\n" );
     printf( "========================================\n" );
 
-    /* Initialise the DMOSI FreeRTOS backend from within the first task so
-     * that xTaskGetCurrentTaskHandle() returns a valid handle. */
-    if( !dmosi_init() )
-    {
-        printf( "ERROR: dmosi_init() failed\n" );
-        g_test_result = 1;
-        vTaskEndScheduler();
-        vTaskDelete( NULL );
-        return;
-    }
-
     test_mutex();
     test_semaphore();
     test_queue();
@@ -472,6 +461,8 @@ static void test_task( void * pvParameters )
         g_test_result = 1;
     }
 
+    /* dmosi_deinit() cleans up all DMOSI resources and stops the scheduler,
+     * causing dmosi_init() in main() to return. */
     dmosi_deinit();
     vTaskEndScheduler();
     vTaskDelete( NULL );
@@ -489,7 +480,15 @@ int main( void )
                  configMAX_PRIORITIES - 2,
                  NULL );
 
-    vTaskStartScheduler();
+    /* dmosi_init() creates the system process and starts the FreeRTOS
+     * scheduler.  It blocks here until vTaskEndScheduler() is called.
+     * test_task calls dmosi_deinit() followed by vTaskEndScheduler() to
+     * stop the scheduler and allow this call to return. */
+    if( !dmosi_init() )
+    {
+        printf( "ERROR: dmosi_init() failed\n" );
+        return 1;
+    }
 
     return g_test_result;
 }
