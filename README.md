@@ -113,12 +113,19 @@ target_link_libraries(my_app PRIVATE dmosi_freertos)
 
 ### Initialisation
 
-`dmosi_init()` must be called from within a running task, once the scheduler is already active and before any other DMOSI API is used. `dmosi_deinit()` should be called before the task exits to release resources.
+Call `dmosi_init()` once at application startup (from within the initial running task) before using any other DMOSI API. Call `dmosi_deinit()` on shutdown to release resources. All application logic — threads, queues, timers, synchronisation — is expressed exclusively through DMOSI APIs:
 
 ```c
 #include "dmosi.h"
 
-/* Called by the platform as the initial application task */
+static void worker(void *arg)
+{
+    dmosi_mutex_t mtx = (dmosi_mutex_t)arg;
+    dmosi_mutex_lock(mtx);
+    /* do work */
+    dmosi_mutex_unlock(mtx);
+}
+
 void app_entry(void *arg)
 {
     if (!dmosi_init()) {
@@ -126,16 +133,18 @@ void app_entry(void *arg)
         return;
     }
 
-    /* create threads, queues, timers, etc. using DMOSI APIs */
+    dmosi_mutex_t mtx = dmosi_mutex_create(false);
+    dmosi_thread_t t   = dmosi_thread_create(worker, mtx, 1, 4096, "worker", NULL);
 
-    /* ... application runs here ... */
+    dmosi_thread_join(t);
+    dmosi_thread_destroy(t);
+    dmosi_mutex_destroy(mtx);
 
-    /* call dmosi_deinit() when the application is shutting down */
     dmosi_deinit();
 }
 ```
 
-`dmosi_init()` creates an internal *system* process and bootstraps thread-local storage for the calling task so that all subsequent DMOSI calls can identify the running thread. `dmosi_deinit()` reverses this when the application is done.
+`dmosi_init()` creates an internal *system* process and bootstraps thread-local storage for the calling task. `dmosi_deinit()` reverses this on shutdown.
 
 ## API summary
 
