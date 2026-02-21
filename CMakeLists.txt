@@ -127,3 +127,13 @@ target_link_libraries(dmosi_freertos PUBLIC
 target_compile_definitions(dmosi_freertos PRIVATE
     DMOSI_FREERTOS_VERSION="${PROJECT_VERSION}"
 )
+
+# ======================================================================
+#               Tests
+# ======================================================================
+option(DMOSI_FREERTOS_BUILD_TESTS "Build tests" OFF)
+
+if(DMOSI_FREERTOS_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
