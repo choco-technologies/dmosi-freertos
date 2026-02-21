@@ -413,8 +413,8 @@ static void test_init_deinit( void )
 {
     printf( "\n=== Testing init / deinit ===\n" );
 
-    /* Calling init again on an already-initialised system must succeed */
-    TEST_ASSERT( dmosi_init() == true, "Double dmosi_init() is idempotent" );
+    /* Calling init again on an already-initialised system must fail */
+    TEST_ASSERT( dmosi_init() == false, "Double dmosi_init() returns false" );
 
     /* Calling deinit when not initialised (after deinit) must succeed */
     TEST_ASSERT( dmosi_deinit() == true, "dmosi_deinit() returns true" );

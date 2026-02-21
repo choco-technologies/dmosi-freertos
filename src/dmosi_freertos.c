@@ -16,11 +16,13 @@ static dmosi_process_t g_system_process = NULL;
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _init, (void) )
 {
     if (g_system_process != NULL) {
-        return true;
+        DMOD_LOG_ERROR("dmosi already initialized\n");
+        return false;
     }
 
     g_system_process = dmosi_process_create("system", DMOSI_SYSTEM_MODULE_NAME, NULL);
     if (g_system_process == NULL) {
+        DMOD_LOG_ERROR("Failed to create system process\n");
         return false;
     }
 
@@ -33,6 +35,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _init, (void) )
     }
 
     if (dmosi_thread_current() == NULL) {
+        DMOD_LOG_ERROR("Failed to bootstrap current thread\n");
         dmosi_thread_set_init_process(NULL);
         dmosi_process_destroy(g_system_process);
         g_system_process = NULL;
