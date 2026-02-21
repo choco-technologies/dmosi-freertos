@@ -68,7 +68,7 @@ static struct dmosi_thread* thread_new(TaskHandle_t handle,
  * This function wraps the user's thread entry function to match
  * FreeRTOS task signature and handle cleanup.
  * 
- * @param pvParameters Pointer to dmod_thread structure
+ * @param pvParameters Pointer to dmosi_thread structure
  */
 static void thread_wrapper(void* pvParameters)
 {
@@ -91,6 +91,10 @@ static void thread_wrapper(void* pvParameters)
         thread->completed = true;
         joiner_to_notify = thread->joiner;
         taskEXIT_CRITICAL();
+        
+        // Clear TLS before self-deletion so thread_enumerate won't return
+        // a stale handle for this completed thread.
+        vTaskSetThreadLocalStoragePointer(NULL, DMOD_THREAD_TLS_INDEX, NULL);
         
         // Notify any task waiting to join (outside critical section)
         if (joiner_to_notify != NULL) {
@@ -180,9 +184,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmosi_thread_t t
 
     TaskHandle_t current = xTaskGetCurrentTaskHandle();
     
-    // Clear the task-local storage pointer if this is the current thread
-    // or if the task is still valid
-    if (thread->handle != NULL) {
+    // Only access TLS if the task has not completed (self-deleted).
+    // After vTaskDelete(NULL) in thread_wrapper, the TCB may have been
+    // freed by the idle task, making TLS access unsafe.
+    if (thread->handle != NULL && !thread->completed) {
         // Check if the task-local storage still points to this structure
         void* stored = pvTaskGetThreadLocalStoragePointer(thread->handle, DMOD_THREAD_TLS_INDEX);
         if (stored == thread) {
