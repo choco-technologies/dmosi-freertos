@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <stdbool.h>
-#include <string.h>
 #include <errno.h>
 #include "dmosi.h"
 #include "dmod.h"
@@ -8,9 +7,9 @@
 #include "task.h"
 
 /**
- * @brief Task-local storage index for storing dmod_thread structure
+ * @brief Task-local storage index for storing dmosi_thread structure
  * 
- * This index is used to store and retrieve the dmod_thread structure
+ * This index is used to store and retrieve the dmosi_thread structure
  * associated with each FreeRTOS task.
  */
 #define DMOD_THREAD_TLS_INDEX    0
@@ -21,15 +20,14 @@
  * This structure wraps the FreeRTOS TaskHandle_t and stores thread-related
  * information needed for thread management operations.
  */
-struct dmod_thread {
-    TaskHandle_t handle;           /**< FreeRTOS task handle */
-    dmod_thread_entry_t entry;     /**< Thread entry function */
-    void* arg;                     /**< Argument passed to thread entry */
-    bool completed;                /**< Whether thread has completed execution */
-    bool joined;                   /**< Whether thread has been joined */
-    TaskHandle_t joiner;           /**< Handle of task waiting to join */
-    char module_name[DMOD_MAX_MODULE_NAME_LENGTH];  /**< Module name that created the thread */
-    dmod_process_t process;        /**< Process that the thread belongs to */
+struct dmosi_thread {
+    TaskHandle_t handle;              /**< FreeRTOS task handle */
+    dmosi_thread_entry_t entry;       /**< Thread entry function */
+    void* arg;                        /**< Argument passed to thread entry */
+    bool completed;                   /**< Whether thread has completed execution */
+    bool joined;                      /**< Whether thread has been joined */
+    TaskHandle_t joiner;              /**< Handle of task waiting to join */
+    dmosi_process_t process;          /**< Process that the thread belongs to */
 };
 
 /**
@@ -40,17 +38,15 @@ struct dmod_thread {
  * @param handle FreeRTOS task handle
  * @param entry Thread entry function (can be NULL)
  * @param arg Thread argument (can be NULL)
- * @param module_name Module name (can be NULL for default)
  * @param process Process to associate the thread with (can be NULL)
  * @return Pointer to initialized thread structure, NULL on allocation failure
  */
-static struct dmod_thread* thread_new(TaskHandle_t handle, 
-                                      dmod_thread_entry_t entry, 
-                                      void* arg, 
-                                      const char* module_name,
-                                      dmod_process_t process)
+static struct dmosi_thread* thread_new(TaskHandle_t handle, 
+                                       dmosi_thread_entry_t entry, 
+                                       void* arg, 
+                                       dmosi_process_t process)
 {
-    struct dmod_thread* thread = (struct dmod_thread*)pvPortMalloc(sizeof(*thread));
+    struct dmosi_thread* thread = (struct dmosi_thread*)pvPortMalloc(sizeof(*thread));
     if (thread == NULL) {
         return NULL;
     }
@@ -63,15 +59,6 @@ static struct dmod_thread* thread_new(TaskHandle_t handle,
     thread->joiner = NULL;
     thread->process = process;
     
-    // Copy module name safely
-    if (module_name != NULL) {
-        strncpy(thread->module_name, module_name, DMOD_MAX_MODULE_NAME_LENGTH - 1);
-        thread->module_name[DMOD_MAX_MODULE_NAME_LENGTH - 1] = '\0';
-    } else {
-        strncpy(thread->module_name, DMOSI_SYSTEM_MODULE_NAME, DMOD_MAX_MODULE_NAME_LENGTH - 1);
-        thread->module_name[DMOD_MAX_MODULE_NAME_LENGTH - 1] = '\0';
-    }
-    
     return thread;
 }
 
@@ -81,11 +68,11 @@ static struct dmod_thread* thread_new(TaskHandle_t handle,
  * This function wraps the user's thread entry function to match
  * FreeRTOS task signature and handle cleanup.
  * 
- * @param pvParameters Pointer to dmod_thread structure
+ * @param pvParameters Pointer to dmosi_thread structure
  */
 static void thread_wrapper(void* pvParameters)
 {
-    struct dmod_thread* thread = (struct dmod_thread*)pvParameters;
+    struct dmosi_thread* thread = (struct dmosi_thread*)pvParameters;
     TaskHandle_t joiner_to_notify = NULL;
     
     // Store the thread structure in task-local storage so it can be
@@ -104,6 +91,10 @@ static void thread_wrapper(void* pvParameters)
         thread->completed = true;
         joiner_to_notify = thread->joiner;
         taskEXIT_CRITICAL();
+        
+        // Clear TLS before self-deletion so thread_enumerate won't return
+        // a stale handle for this completed thread.
+        vTaskSetThreadLocalStoragePointer(NULL, DMOD_THREAD_TLS_INDEX, NULL);
         
         // Notify any task waiting to join (outside critical section)
         if (joiner_to_notify != NULL) {
@@ -132,11 +123,10 @@ static void thread_wrapper(void* pvParameters)
  * @param priority Thread priority
  * @param stack_size Stack size for the thread in bytes
  * @param name Name of the thread (cannot be NULL)
- * @param module_name Name of the module creating the thread (for tracking allocations)
  * @param process Process to associate the thread with (NULL = current process)
- * @return dmod_thread_t Created thread handle, NULL on failure
+ * @return dmosi_thread_t Created thread handle, NULL on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thread_entry_t entry, void* arg, int priority, size_t stack_size, const char* name, const char* module_name, dmod_process_t process) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_thread_entry_t entry, void* arg, int priority, size_t stack_size, const char* name, dmosi_process_t process) )
 {
     if (entry == NULL || stack_size == 0 || name == NULL) {
         return NULL;
@@ -147,7 +137,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
         process = dmosi_process_current();
     }
 
-    struct dmod_thread* thread = thread_new(NULL, entry, arg, module_name, process);
+    struct dmosi_thread* thread = thread_new(NULL, entry, arg, process);
     if (thread == NULL) {
         return NULL;
     }
@@ -170,7 +160,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
         return NULL;
     }
 
-    return (dmod_thread_t)thread;
+    return (dmosi_thread_t)thread;
 }
 
 /**
@@ -186,7 +176,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_create, (dmod_thr
  * 
  * @param thread Thread handle to destroy
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmod_thread_t thread) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmosi_thread_t thread) )
 {
     if (thread == NULL) {
         return;
@@ -194,9 +184,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmod_thread_t th
 
     TaskHandle_t current = xTaskGetCurrentTaskHandle();
     
-    // Clear the task-local storage pointer if this is the current thread
-    // or if the task is still valid
-    if (thread->handle != NULL) {
+    // Only access TLS if the task has not completed (self-deleted).
+    // After vTaskDelete(NULL) in thread_wrapper, the TCB may have been
+    // freed by the idle task, making TLS access unsafe.
+    if (thread->handle != NULL && !thread->completed) {
         // Check if the task-local storage still points to this structure
         void* stored = pvTaskGetThreadLocalStoragePointer(thread->handle, DMOD_THREAD_TLS_INDEX);
         if (stored == thread) {
@@ -223,7 +214,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_destroy, (dmod_thread_t th
  * @param thread Thread handle to join
  * @return int 0 on success, negative error code on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmosi_thread_t thread) )
 {
     if (thread == NULL) {
         return -EINVAL;
@@ -297,9 +288,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_join, (dmod_thread_t thread
  * The returned handle should be passed to dmosi_thread_destroy() to free
  * the allocated structure when it's no longer needed.
  * 
- * @return dmod_thread_t Current thread handle, or NULL if allocation fails
+ * @return dmosi_thread_t Current thread handle, or NULL if allocation fails
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_current, (void) )
 {
     TaskHandle_t current_handle = xTaskGetCurrentTaskHandle();
     
@@ -308,14 +299,14 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
     }
     
     // Try to retrieve existing thread structure from task-local storage
-    struct dmod_thread* thread = (struct dmod_thread*)pvTaskGetThreadLocalStoragePointer(
+    struct dmosi_thread* thread = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(
         current_handle, 
         DMOD_THREAD_TLS_INDEX
     );
     
     // If no structure exists, allocate and store one
     if (thread == NULL) {
-        thread = thread_new(current_handle, NULL, NULL, DMOSI_SYSTEM_MODULE_NAME, dmosi_process_current());
+        thread = thread_new(current_handle, NULL, NULL, dmosi_process_current());
         if (thread == NULL) {
             return NULL;
         }
@@ -324,7 +315,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_thread_t, _thread_current, (void) )
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);
     }
     
-    return (dmod_thread_t)thread;
+    return (dmosi_thread_t)thread;
 }
 
 /**
@@ -355,7 +346,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _thread_sleep, (uint32_t ms) )
  * @param thread Thread handle (if NULL, returns name of current thread)
  * @return const char* Thread name, NULL on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_name, (dmod_thread_t thread) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_name, (dmosi_thread_t thread) )
 {
     // If thread is NULL, get current thread
     if (thread == NULL) {
@@ -372,13 +363,13 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_name, (dmod_thr
 /**
  * @brief Get thread module name
  * 
- * Returns the module name that created the specified thread, or the current
- * thread if NULL.
+ * Returns the module name associated with the thread by retrieving it from
+ * the thread's associated process.
  * 
  * @param thread Thread handle (if NULL, returns module name of current thread)
- * @return const char* Module name that created the thread, NULL on failure
+ * @return const char* Module name of the process that owns the thread, NULL on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (dmod_thread_t thread) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (dmosi_thread_t thread) )
 {
     // If thread is NULL, get current thread
     if (thread == NULL) {
@@ -388,7 +379,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (d
         }
     }
     
-    return thread->module_name;
+    if (thread->process == NULL) {
+        return NULL;
+    }
+    
+    return dmosi_process_get_module_name(thread->process);
 }
 
 /**
@@ -399,7 +394,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, const char*, _thread_get_module_name, (d
  * @param thread Thread handle (if NULL, returns priority of current thread)
  * @return int Thread priority, or 0 on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_get_priority, (dmod_thread_t thread) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_get_priority, (dmosi_thread_t thread) )
 {
     // If thread is NULL, get current thread
     if (thread == NULL) {
@@ -419,9 +414,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_get_priority, (dmod_thread_
  * current thread's process if NULL.
  * 
  * @param thread Thread handle (if NULL, returns process of current thread)
- * @return dmod_process_t Process handle that the thread belongs to, NULL on failure
+ * @return dmosi_process_t Process handle that the thread belongs to, NULL on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_process_t, _thread_get_process, (dmod_thread_t thread) )
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_process_t, _thread_get_process, (dmosi_thread_t thread) )
 {
     // If thread is NULL, get current thread
     if (thread == NULL) {
@@ -432,4 +427,135 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmod_process_t, _thread_get_process, (dm
     }
 
     return thread->process;
+}
+
+/**
+ * @brief Kill a thread
+ *
+ * Forcefully terminates a thread and marks it as completed.
+ *
+ * @param thread Thread handle to kill
+ * @param status Exit status (not observable by other threads)
+ * @return int 0 on success, negative error code on failure
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_kill, (dmosi_thread_t thread, int status) )
+{
+    if (thread == NULL) {
+        return -EINVAL;
+    }
+
+    (void)status;
+
+    TaskHandle_t current = xTaskGetCurrentTaskHandle();
+
+    // Mark thread as completed and notify any joiner
+    taskENTER_CRITICAL();
+    thread->completed = true;
+    TaskHandle_t joiner_to_notify = thread->joiner;
+    taskEXIT_CRITICAL();
+
+    if (joiner_to_notify != NULL) {
+        xTaskNotifyGive(joiner_to_notify);
+    }
+
+    // Delete the FreeRTOS task if it is not the current task
+    if (thread->handle != NULL && thread->handle != current) {
+        vTaskDelete(thread->handle);
+    } else if (thread->handle != NULL && thread->handle == current) {
+        // Self-termination: delete this task; does not return
+        vTaskDelete(NULL);
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Safety margin added to the task-array allocation to guard against
+ *        tasks being created between uxTaskGetNumberOfTasks() and
+ *        uxTaskGetSystemState().
+ */
+#define THREAD_ENUM_MARGIN    4
+
+/**
+ * @brief Enumerate all FreeRTOS tasks that have a dmosi_thread in TLS.
+ *
+ * Allocates a temporary TaskStatus_t array, calls uxTaskGetSystemState(), and
+ * for each task whose TLS slot 0 is non-NULL, optionally writes the handle to
+ * @p threads up to @p max_count entries.
+ *
+ * @param process  Filter: only include threads whose process matches this value.
+ *                 Pass NULL to include threads regardless of process.
+ * @param threads  Output array, or NULL for a count-only query.
+ * @param max_count Maximum entries to write into @p threads.
+ * @return Number of matching threads found, capped at @p max_count when @p threads
+ *         is non-NULL.
+ */
+static size_t thread_enumerate(dmosi_process_t process, dmosi_thread_t* threads, size_t max_count)
+{
+    // Add a small margin to guard against new tasks being created between the
+    // count query and the actual enumeration call.
+    UBaseType_t alloc_count = uxTaskGetNumberOfTasks() + THREAD_ENUM_MARGIN;
+    TaskStatus_t* task_array = (TaskStatus_t*)pvPortMalloc(alloc_count * sizeof(TaskStatus_t));
+    if (task_array == NULL) {
+        return 0;
+    }
+
+    UBaseType_t filled = uxTaskGetSystemState(task_array, alloc_count, NULL);
+    size_t count = 0;
+
+    for (UBaseType_t i = 0; i < filled; i++) {
+        struct dmosi_thread* t = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(
+            task_array[i].xHandle, DMOD_THREAD_TLS_INDEX);
+        if (t == NULL) {
+            continue;
+        }
+        if (process != NULL && t->process != process) {
+            continue;
+        }
+        if (threads != NULL && count < max_count) {
+            threads[count] = (dmosi_thread_t)t;
+        }
+        count++;
+    }
+
+    vPortFree(task_array);
+
+    // When writing to the array, cap the return value at the number of handles written.
+    if (threads != NULL && count > max_count) {
+        return max_count;
+    }
+    return count;
+}
+
+/**
+ * @brief Get an array of all threads
+ *
+ * Fills the provided array with handles of all existing threads by enumerating
+ * FreeRTOS tasks and retrieving the dmosi_thread structure stored in TLS.
+ * If @p threads is NULL, returns the total number of threads.
+ *
+ * @param threads Pointer to array to fill, or NULL to query count only
+ * @param max_count Maximum number of handles to write (ignored when @p threads is NULL)
+ * @return size_t Number of threads (count query) or number of handles written
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_all, (dmosi_thread_t* threads, size_t max_count) )
+{
+    return thread_enumerate(NULL, threads, max_count);
+}
+
+/**
+ * @brief Get an array of threads belonging to a specific process
+ *
+ * Fills the provided array with handles of all threads associated with @p process
+ * by enumerating FreeRTOS tasks and checking the dmosi_thread structure in TLS.
+ * If @p threads is NULL, returns the number of threads in that process.
+ *
+ * @param process Process handle whose threads to retrieve
+ * @param threads Pointer to array to fill, or NULL to query count only
+ * @param max_count Maximum number of handles to write (ignored when @p threads is NULL)
+ * @return size_t Number of matching threads (count query) or number of handles written
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_by_process, (dmosi_process_t process, dmosi_thread_t* threads, size_t max_count) )
+{
+    return thread_enumerate(process, threads, max_count);
 }
