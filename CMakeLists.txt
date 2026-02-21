@@ -93,6 +93,11 @@ endif()
 add_subdirectory(lib/freertos)
 
 # ======================================================================
+#               DMOSI Process Management
+# ======================================================================
+add_subdirectory(lib/dmosi-proc)
+
+# ======================================================================
 #               DMOD VFS Library definition
 # ======================================================================
 add_library(dmosi_freertos STATIC
@@ -114,6 +119,7 @@ target_include_directories(dmosi_freertos PUBLIC
 target_link_libraries(dmosi_freertos PUBLIC
     dmod
     dmosi
+    dmosi_proc
     freertos_kernel
 )
 
