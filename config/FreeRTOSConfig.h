@@ -52,8 +52,12 @@
  * interrupt. The default value is set to 20MHz and matches the QEMU demo
  * settings.  Your application will certainly need a different value so set this
  * correctly. This is very often, but not always, equal to the main system clock
- * frequency. */
-#define configCPU_CLOCK_HZ    ( ( unsigned long ) 20000000 )
+ * frequency.
+ * Configurable via CMake parameter DMOSI_CPU_CLOCK_HZ. */
+#ifndef DMOSI_CPU_CLOCK_HZ
+    #define DMOSI_CPU_CLOCK_HZ    20000000
+#endif
+#define configCPU_CLOCK_HZ    ( ( unsigned long ) DMOSI_CPU_CLOCK_HZ )
 
 /* configSYSTICK_CLOCK_HZ is an optional parameter for ARM Cortex-M ports only.
  *
@@ -76,8 +80,12 @@
 /******************************************************************************/
 
 /* configTICK_RATE_HZ sets frequency of the tick interrupt in Hz, normally
- * calculated from the configCPU_CLOCK_HZ value. */
-#define configTICK_RATE_HZ                         100
+ * calculated from the configCPU_CLOCK_HZ value.
+ * Configurable via CMake parameter DMOSI_TICK_RATE_HZ. */
+#ifndef DMOSI_TICK_RATE_HZ
+    #define DMOSI_TICK_RATE_HZ    100
+#endif
+#define configTICK_RATE_HZ                         DMOSI_TICK_RATE_HZ
 
 /* Set configUSE_PREEMPTION to 1 to use pre-emptive scheduling.  Set
  * configUSE_PREEMPTION to 0 to use co-operative scheduling.
