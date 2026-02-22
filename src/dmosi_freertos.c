@@ -4,6 +4,28 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+//==============================================================================
+//                              FreeRTOS Application Hooks
+//==============================================================================
+
+#if ( configCHECK_FOR_STACK_OVERFLOW > 0 )
+/**
+ * @brief Stack overflow hook function required by FreeRTOS when configCHECK_FOR_STACK_OVERFLOW is enabled
+ * 
+ * @param xTask Handle of the task that overflowed its stack
+ * @param pcTaskName Name of the task that overflowed its stack
+ */
+__attribute__((weak)) void vApplicationStackOverflowHook( TaskHandle_t xTask, char * pcTaskName )
+{
+    (void) xTask;
+    DMOD_LOG_ERROR("Stack overflow detected in task: %s\n", pcTaskName);
+
+    // Disable interrupts and halt the system
+    taskDISABLE_INTERRUPTS();
+    while(1);
+}
+#endif /* configCHECK_FOR_STACK_OVERFLOW */
+
 extern void dmosi_thread_set_init_process(dmosi_process_t process);
 extern void dmosi_thread_unregister_current(void);
 
