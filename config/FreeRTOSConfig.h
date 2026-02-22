@@ -48,6 +48,7 @@
  * include path when DMOSI_ARCH and DMOSI_ARCH_FAMILY are set in CMake.
  * If no arch directory is configured, config/FreeRTOSConfigArch.h is used. */
 #include "FreeRTOSConfigArch.h"
+#include "dmod_sal.h"
 
 /******************************************************************************/
 /* Hardware description related definitions. **********************************/
@@ -435,13 +436,7 @@
  * execution on the failing line for viewing in a debugger. */
 
 /* *INDENT-OFF* */
-#define configASSERT( x )         \
-    if( ( x ) == 0 )              \
-    {                             \
-        taskDISABLE_INTERRUPTS(); \
-        for( ; ; )                \
-        ;                         \
-    }
+#define configASSERT( x )    DMOD_ASSERT( x )
 /* *INDENT-ON* */
 
 /******************************************************************************/
