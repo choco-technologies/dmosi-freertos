@@ -74,7 +74,37 @@ FetchContent_MakeAvailable(dmosi)
 set(DMOSI_CPU_CLOCK_HZ 20000000 CACHE STRING "CPU clock frequency in Hz")
 set(DMOSI_TICK_RATE_HZ 100 CACHE STRING "Tick rate frequency in Hz")
 
+# ======================================================================
+#               Architecture Selection
+# ======================================================================
+set(DMOSI_ARCH        "" CACHE STRING "Architecture of the target microcontroller (e.g. armv7)")
+set(DMOSI_ARCH_FAMILY "" CACHE STRING "Microcontroller family (e.g. cortex-m7)")
+set(DMOSI_COMPILER    "gcc" CACHE STRING "Compiler toolchain used for FreeRTOS port selection (default: gcc)")
+
+# Derive FREERTOS_PORT from DMOSI_ARCH + DMOSI_ARCH_FAMILY when the user
+# has supplied them but has not set FREERTOS_PORT explicitly.
+# This also sets FREERTOS_ARCH_CONFIG_SUBDIR and FREERTOS_ARCH_COMPILER_FLAGS.
+if(DMOSI_ARCH AND DMOSI_ARCH_FAMILY AND NOT DEFINED FREERTOS_PORT)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/arch_mapping.cmake)
+endif()
+
+# Fallback: use POSIX port for host/test builds when nothing was specified
+if(NOT DEFINED FREERTOS_PORT)
+    set(FREERTOS_PORT "GCC_POSIX" CACHE STRING "FreeRTOS port")
+    set(FREERTOS_ARCH_CONFIG_SUBDIR "posix")
+    message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
+endif()
+
 add_library(freertos_config INTERFACE)
+
+# Include arch-specific config directory first so its FreeRTOSConfigArch.h
+# is found before the fallback in config/FreeRTOSConfigArch.h.
+if(FREERTOS_ARCH_CONFIG_SUBDIR)
+    target_include_directories(freertos_config
+        INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/config/arch/${FREERTOS_ARCH_CONFIG_SUBDIR}>
+    )
+endif()
 
 target_include_directories(freertos_config
     INTERFACE
@@ -87,31 +117,21 @@ target_compile_definitions(freertos_config
     DMOSI_TICK_RATE_HZ=${DMOSI_TICK_RATE_HZ}
 )
 
+# Apply arch-specific compiler flags required by the selected FreeRTOS port
+# (e.g. hardware FPU flags for ARM Cortex-M4F and Cortex-M7).
+if(FREERTOS_ARCH_COMPILER_FLAGS)
+    target_compile_options(freertos_config
+        INTERFACE
+        ${FREERTOS_ARCH_COMPILER_FLAGS}
+    )
+endif()
+
 # Link with dmod and dmosi to get their include directories transitively
 target_link_libraries(freertos_config
     INTERFACE
     dmod
     dmosi
 )
-
-# ======================================================================
-#               Architecture Selection
-# ======================================================================
-set(DMOSI_ARCH        "" CACHE STRING "Architecture of the target microcontroller (e.g. armv7)")
-set(DMOSI_ARCH_FAMILY "" CACHE STRING "Microcontroller family (e.g. cortex-m7)")
-set(DMOSI_COMPILER    "gcc" CACHE STRING "Compiler toolchain used for FreeRTOS port selection (default: gcc)")
-
-# Derive FREERTOS_PORT from DMOSI_ARCH + DMOSI_ARCH_FAMILY when the user
-# has supplied them but has not set FREERTOS_PORT explicitly.
-if(DMOSI_ARCH AND DMOSI_ARCH_FAMILY AND NOT DEFINED FREERTOS_PORT)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/arch_mapping.cmake)
-endif()
-
-# Fallback: use POSIX port for host/test builds when nothing was specified
-if(NOT DEFINED FREERTOS_PORT)
-    set(FREERTOS_PORT "GCC_POSIX" CACHE STRING "FreeRTOS port")
-    message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
-endif()
 
 # Add FreeRTOS subdirectory
 add_subdirectory(lib/freertos)
