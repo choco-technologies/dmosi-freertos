@@ -46,4 +46,12 @@
     #define configENABLE_MVE    1
 #endif
 
+/* Map FreeRTOS ARM Cortex-M55 interrupt handler names to the dmosi system
+ * interrupt interface.  This lets users install dmosi_syscall_handler,
+ * dmosi_context_switch_handler, and dmosi_tick_handler directly in their
+ * vector tables instead of the standard CMSIS exception names. */
+#define SVC_Handler        dmosi_syscall_handler
+#define PendSV_Handler     dmosi_context_switch_handler
+#define SysTick_Handler    dmosi_tick_handler
+
 #endif /* FREERTOS_CONFIG_ARCH_H */
