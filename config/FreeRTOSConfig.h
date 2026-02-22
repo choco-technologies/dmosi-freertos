@@ -334,19 +334,27 @@
  * switch performing interrupts.  Not supported by all FreeRTOS ports.  See
  * https://www.freertos.org/RTOS-Cortex-M3-M4.html for information specific to
  * ARM Cortex-M devices. */
-#define configKERNEL_INTERRUPT_PRIORITY          0
+#ifndef configKERNEL_INTERRUPT_PRIORITY
+    #define configKERNEL_INTERRUPT_PRIORITY    0
+#endif
 
 /* configMAX_SYSCALL_INTERRUPT_PRIORITY sets the interrupt priority above which
  * FreeRTOS API calls must not be made.  Interrupts above this priority are
  * never disabled, so never delayed by RTOS activity.  The default value is set
- * to the highest interrupt priority (0).  Not supported by all FreeRTOS ports.
- * See https://www.freertos.org/RTOS-Cortex-M3-M4.html for information specific
- * to ARM Cortex-M devices. */
-#define configMAX_SYSCALL_INTERRUPT_PRIORITY     0
+ * to 0, which is valid for ports that do not use BASEPRI masking (e.g. POSIX,
+ * RISC-V).  ARM Cortex-M ports require a non-zero value; override this in the
+ * architecture-specific FreeRTOSConfigArch.h.  Not supported by all FreeRTOS
+ * ports.  See https://www.freertos.org/RTOS-Cortex-M3-M4.html for information
+ * specific to ARM Cortex-M devices. */
+#ifndef configMAX_SYSCALL_INTERRUPT_PRIORITY
+    #define configMAX_SYSCALL_INTERRUPT_PRIORITY    0
+#endif
 
 /* Another name for configMAX_SYSCALL_INTERRUPT_PRIORITY - the name used depends
  * on the FreeRTOS port. */
-#define configMAX_API_CALL_INTERRUPT_PRIORITY    0
+#ifndef configMAX_API_CALL_INTERRUPT_PRIORITY
+    #define configMAX_API_CALL_INTERRUPT_PRIORITY    0
+#endif
 
 /******************************************************************************/
 /* Hook and callback function related definitions. ****************************/
