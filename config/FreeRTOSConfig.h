@@ -43,6 +43,12 @@
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
+/* Include architecture-specific configuration defaults.
+ * The build system adds the appropriate config/arch/<arch>/ directory to the
+ * include path when DMOSI_ARCH and DMOSI_ARCH_FAMILY are set in CMake.
+ * If no arch directory is configured, config/FreeRTOSConfigArch.h is used. */
+#include "FreeRTOSConfigArch.h"
+
 /******************************************************************************/
 /* Hardware description related definitions. **********************************/
 /******************************************************************************/
@@ -577,7 +583,9 @@
 /* secureconfigMAX_SECURE_CONTEXTS define the maximum number of tasks that can
  *  call into the secure side of an ARMv8-M chip.  Not used by any other ports.
  */
-#define secureconfigMAX_SECURE_CONTEXTS        5
+#ifndef secureconfigMAX_SECURE_CONTEXTS
+    #define secureconfigMAX_SECURE_CONTEXTS        5
+#endif
 
 /* Defines the kernel provided implementation of
  * vApplicationGetIdleTaskMemory() and vApplicationGetTimerTaskMemory()
@@ -585,7 +593,9 @@
  * respectively. The application can provide it's own implementation of
  * vApplicationGetIdleTaskMemory() and vApplicationGetTimerTaskMemory() by
  * setting configKERNEL_PROVIDED_STATIC_MEMORY to 0 or leaving it undefined. */
-#define configKERNEL_PROVIDED_STATIC_MEMORY    1
+#ifndef configKERNEL_PROVIDED_STATIC_MEMORY
+    #define configKERNEL_PROVIDED_STATIC_MEMORY    1
+#endif
 
 /******************************************************************************/
 /* ARMv8-M port Specific Configuration definitions. ***************************/
@@ -594,31 +604,46 @@
 /* Set configENABLE_TRUSTZONE to 1 when running FreeRTOS on the non-secure side
  * to enable the TrustZone support in FreeRTOS ARMv8-M ports which allows the
  * non-secure FreeRTOS tasks to call the (non-secure callable) functions
- * exported from secure side. */
-#define configENABLE_TRUSTZONE            1
+ * exported from secure side.
+ * Arch-specific default is set in config/arch/<arch>/FreeRTOSConfigArch.h. */
+#ifndef configENABLE_TRUSTZONE
+    #define configENABLE_TRUSTZONE            0
+#endif
 
 /* If the application writer does not want to use TrustZone, but the hardware
  * does not support disabling TrustZone then the entire application (including
  * the FreeRTOS scheduler) can run on the secure side without ever branching to
  * the non-secure side. To do that, in addition to setting
- * configENABLE_TRUSTZONE to 0, also set configRUN_FREERTOS_SECURE_ONLY to 1. */
-#define configRUN_FREERTOS_SECURE_ONLY    1
+ * configENABLE_TRUSTZONE to 0, also set configRUN_FREERTOS_SECURE_ONLY to 1.
+ * Arch-specific default is set in config/arch/<arch>/FreeRTOSConfigArch.h. */
+#ifndef configRUN_FREERTOS_SECURE_ONLY
+    #define configRUN_FREERTOS_SECURE_ONLY    0
+#endif
 
 /* Set configENABLE_MPU to 1 to enable the Memory Protection Unit (MPU), or 0
- * to leave the Memory Protection Unit disabled. */
-#define configENABLE_MPU                  1
+ * to leave the Memory Protection Unit disabled.
+ * Arch-specific default is set in config/arch/<arch>/FreeRTOSConfigArch.h. */
+#ifndef configENABLE_MPU
+    #define configENABLE_MPU                  0
+#endif
 
 /* Set configENABLE_FPU to 1 to enable the Floating Point Unit (FPU), or 0
- * to leave the Floating Point Unit disabled. */
-#define configENABLE_FPU                  1
+ * to leave the Floating Point Unit disabled.
+ * Arch-specific default is set in config/arch/<arch>/FreeRTOSConfigArch.h. */
+#ifndef configENABLE_FPU
+    #define configENABLE_FPU                  0
+#endif
 
 /* Set configENABLE_MVE to 1 to enable the M-Profile Vector Extension (MVE)
  * support, or 0 to leave the MVE support disabled. This option is only
  * applicable to Cortex-M52, Cortex-M55 and Cortex-M85 ports as M-Profile
  * Vector Extension (MVE) is available only on these architectures.
  * configENABLE_MVE must be left undefined, or defined to 0 for the
- * Cortex-M23,Cortex-M33 and Cortex-M35P ports. */
-#define configENABLE_MVE                  1
+ * Cortex-M23,Cortex-M33 and Cortex-M35P ports.
+ * Arch-specific default is set in config/arch/<arch>/FreeRTOSConfigArch.h. */
+#ifndef configENABLE_MVE
+    #define configENABLE_MVE                  0
+#endif
 
 /******************************************************************************/
 /* ARMv7-M and ARMv8-M port Specific Configuration definitions. ***************/
@@ -639,7 +664,9 @@
  * configCHECK_HANDLER_INSTALLATION to 0.
  *
  * Defaults to 1 if left undefined. */
-#define configCHECK_HANDLER_INSTALLATION    1
+#ifndef configCHECK_HANDLER_INSTALLATION
+    #define configCHECK_HANDLER_INSTALLATION    1
+#endif
 
 /******************************************************************************/
 /* Definitions that include or exclude functionality. *************************/
