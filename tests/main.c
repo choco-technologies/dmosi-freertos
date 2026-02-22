@@ -395,7 +395,8 @@ static void test_thread( void )
     TEST_ASSERT( info_ret == 0, "thread_get_info returns 0 for current thread" );
     TEST_ASSERT( info.state == DMOSI_THREAD_STATE_RUNNING,
                  "thread_get_info: current thread state is RUNNING" );
-    TEST_ASSERT( info.cpu_usage >= 0.0f, "thread_get_info: cpu_usage >= 0" );
+    TEST_ASSERT( info.cpu_usage >= 0.0f && info.cpu_usage <= 100.0f,
+                 "thread_get_info: cpu_usage in [0, 100]" );
 
     /* Thread info with NULL thread (should use current thread) */
     dmosi_thread_info_t info_null;

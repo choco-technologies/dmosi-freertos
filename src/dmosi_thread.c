@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
+#if defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#endif
 #include "dmosi.h"
 #include "dmod.h"
 #include "FreeRTOS.h"
@@ -651,8 +654,41 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_get_info, (dmosi_thread_t t
     info->stack_current = 0;       // Not measurable by FreeRTOS at arbitrary call sites
     info->stack_peak    = peak_usage;
     info->state         = state;
-    info->cpu_usage     = 0.0f;
-    info->runtime_ms    = 0;
+
+    // Compute cpu_usage from the FreeRTOS run-time stats counter.
+    // task_status.ulRunTimeCounter holds the accumulated counter ticks for this task.
+    // portGET_RUN_TIME_COUNTER_VALUE() returns the current total elapsed counter value.
+    // Clamp to [0, 100] because sampling the task counter and total counter at different
+    // instants can make the ratio slightly exceed 100% due to scheduling jitter.
+    configRUN_TIME_COUNTER_TYPE total_runtime = portGET_RUN_TIME_COUNTER_VALUE();
+    if (total_runtime > 0U) {
+        float usage = (float)task_status.ulRunTimeCounter / (float)total_runtime * 100.0f;
+        info->cpu_usage = (usage < 100.0f) ? usage : 100.0f;
+    } else {
+        info->cpu_usage = 0.0f;
+    }
+
+    // Compute runtime_ms.  The counter unit depends on portGET_RUN_TIME_COUNTER_VALUE():
+    // on POSIX it returns tms_utime ticks (CLK_TCK per second); convert via sysconf.
+    // Divide before multiplying (seconds * 1000 + sub-second remainder * 1000 / clk_tck)
+    // to avoid overflow when the counter value is large.
+    // On other architectures, runtime_ms is left as 0 (counter frequency is unknown
+    // without a port-specific conversion factor).
+#if defined(__unix__) || defined(__APPLE__)
+    {
+        long clk_tck = sysconf(_SC_CLK_TCK);
+        if (clk_tck > 0) {
+            uint64_t counter = (uint64_t)task_status.ulRunTimeCounter;
+            uint64_t freq    = (uint64_t)clk_tck;
+            info->runtime_ms = (counter / freq) * 1000ULL
+                               + (counter % freq) * 1000ULL / freq;
+        } else {
+            info->runtime_ms = 0;
+        }
+    }
+#else
+    info->runtime_ms = 0;
+#endif
 
     return 0;
 }
