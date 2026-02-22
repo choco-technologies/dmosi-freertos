@@ -73,6 +73,8 @@ FetchContent_MakeAvailable(dmosi)
 # Generic DMOSI build parameters for clock and tick frequencies
 set(DMOSI_CPU_CLOCK_HZ 20000000 CACHE STRING "CPU clock frequency in Hz")
 set(DMOSI_TICK_RATE_HZ 100 CACHE STRING "Tick rate frequency in Hz")
+set(DMOSI_TICK_TYPE_WIDTH_IN_BITS "TICK_TYPE_WIDTH_32_BITS" CACHE STRING
+    "Tick type width for FreeRTOS (TICK_TYPE_WIDTH_16_BITS, TICK_TYPE_WIDTH_32_BITS, or TICK_TYPE_WIDTH_64_BITS)")
 
 add_library(freertos_config INTERFACE)
 
@@ -85,6 +87,7 @@ target_compile_definitions(freertos_config
     INTERFACE
     DMOSI_CPU_CLOCK_HZ=${DMOSI_CPU_CLOCK_HZ}
     DMOSI_TICK_RATE_HZ=${DMOSI_TICK_RATE_HZ}
+    DMOSI_TICK_TYPE_WIDTH_IN_BITS=${DMOSI_TICK_TYPE_WIDTH_IN_BITS}
 )
 
 # Link with dmod and dmosi to get their include directories transitively
