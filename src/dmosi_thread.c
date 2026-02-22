@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
+#if defined(__unix__) || defined(__APPLE__)
+#include <unistd.h>
+#endif
 #include "dmosi.h"
 #include "dmod.h"
 #include "FreeRTOS.h"
@@ -43,6 +46,7 @@ struct dmosi_thread {
     bool joined;                      /**< Whether thread has been joined */
     TaskHandle_t joiner;              /**< Handle of task waiting to join */
     dmosi_process_t process;          /**< Process that the thread belongs to */
+    size_t stack_size;                /**< Total stack size in bytes (0 if unknown) */
 };
 
 /**
@@ -59,7 +63,8 @@ struct dmosi_thread {
 static struct dmosi_thread* thread_new(TaskHandle_t handle, 
                                        dmosi_thread_entry_t entry, 
                                        void* arg, 
-                                       dmosi_process_t process)
+                                       dmosi_process_t process,
+                                       size_t stack_size)
 {
     struct dmosi_thread* thread = (struct dmosi_thread*)pvPortMalloc(sizeof(*thread));
     if (thread == NULL) {
@@ -73,6 +78,7 @@ static struct dmosi_thread* thread_new(TaskHandle_t handle,
     thread->joined = false;
     thread->joiner = NULL;
     thread->process = process;
+    thread->stack_size = stack_size;
     
     return thread;
 }
@@ -152,7 +158,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
         process = dmosi_process_current();
     }
 
-    struct dmosi_thread* thread = thread_new(NULL, entry, arg, process);
+    struct dmosi_thread* thread = thread_new(NULL, entry, arg, process, stack_size);
     if (thread == NULL) {
         return NULL;
     }
@@ -326,7 +332,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_current, (void) 
         // Once init is complete, g_init_process is cleared and subsequent tasks
         // created via dmosi_thread_create already have TLS populated.
         dmosi_process_t process = (g_init_process != NULL) ? g_init_process : dmosi_process_current();
-        thread = thread_new(current_handle, NULL, NULL, process);
+        thread = thread_new(current_handle, NULL, NULL, process, 0 /* stack_size unknown for externally created tasks */);
         if (thread == NULL) {
             return NULL;
         }
@@ -578,6 +584,113 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_all, (dmosi_thread_t
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, size_t, _thread_get_by_process, (dmosi_process_t process, dmosi_thread_t* threads, size_t max_count) )
 {
     return thread_enumerate(process, threads, max_count);
+}
+
+/**
+ * @brief Get information about a thread
+ *
+ * Fills the @p info structure with stack usage statistics, state, CPU usage,
+ * and runtime for the given thread.  If @p thread is NULL, the current thread
+ * is used.
+ *
+ * Stack peak/current values are derived from FreeRTOS's high-water mark
+ * (minimum free stack ever observed).  CPU usage and runtime are reported as
+ * zero because run-time statistics are not enabled in the default build
+ * configuration.
+ *
+ * @param thread Thread handle (NULL = current thread)
+ * @param info   Pointer to a dmosi_thread_info_t structure to fill
+ * @return int 0 on success, negative error code on failure
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_get_info, (dmosi_thread_t thread, dmosi_thread_info_t* info) )
+{
+    if (info == NULL) {
+        return -EINVAL;
+    }
+
+    if (thread == NULL) {
+        thread = dmosi_thread_current();
+        if (thread == NULL) {
+            return -EFAULT;
+        }
+    }
+
+    // If the task has already completed, return terminated state.
+    // A thread is truly terminated when:
+    //   - its FreeRTOS handle is NULL, OR
+    //   - it was created via dmosi_thread_create (entry != NULL) and has finished
+    // Lazy-init threads (entry == NULL) have completed=true but are still alive.
+    if (thread->handle == NULL || (thread->entry != NULL && thread->completed)) {
+        info->stack_total   = thread->stack_size;
+        info->stack_current = 0;
+        info->stack_peak    = 0;
+        info->state         = DMOSI_THREAD_STATE_TERMINATED;
+        info->cpu_usage     = 0.0f;
+        info->runtime_ms    = 0;
+        return 0;
+    }
+
+    TaskStatus_t task_status;
+    vTaskGetInfo(thread->handle, &task_status, pdTRUE, eInvalid);
+
+    // Map FreeRTOS task state to dmosi_thread_state_t
+    dmosi_thread_state_t state;
+    switch (task_status.eCurrentState) {
+        case eRunning:   state = DMOSI_THREAD_STATE_RUNNING;    break;
+        case eReady:     state = DMOSI_THREAD_STATE_READY;      break;
+        case eBlocked:   state = DMOSI_THREAD_STATE_BLOCKED;    break;
+        case eSuspended: state = DMOSI_THREAD_STATE_SUSPENDED;  break;
+        case eDeleted:   state = DMOSI_THREAD_STATE_TERMINATED; break;
+        default:         state = DMOSI_THREAD_STATE_TERMINATED; break;
+    }
+
+    // usStackHighWaterMark is the minimum free stack space in words (StackType_t units).
+    // Peak usage = total stack - minimum free space ever observed.
+    // FreeRTOS does not expose instantaneous stack usage, so stack_current is not available.
+    size_t free_bytes = (size_t)task_status.usStackHighWaterMark * sizeof(StackType_t);
+    size_t peak_usage = (thread->stack_size > free_bytes) ? (thread->stack_size - free_bytes) : 0;
+
+    info->stack_total   = thread->stack_size;
+    info->stack_current = 0;       // Not measurable by FreeRTOS at arbitrary call sites
+    info->stack_peak    = peak_usage;
+    info->state         = state;
+
+    // Compute cpu_usage from the FreeRTOS run-time stats counter.
+    // task_status.ulRunTimeCounter holds the accumulated counter ticks for this task.
+    // portGET_RUN_TIME_COUNTER_VALUE() returns the current total elapsed counter value.
+    // Clamp to [0, 100] because sampling the task counter and total counter at different
+    // instants can make the ratio slightly exceed 100% due to scheduling jitter.
+    configRUN_TIME_COUNTER_TYPE total_runtime = portGET_RUN_TIME_COUNTER_VALUE();
+    if (total_runtime > 0U) {
+        float usage = (float)task_status.ulRunTimeCounter / (float)total_runtime * 100.0f;
+        info->cpu_usage = (usage < 100.0f) ? usage : 100.0f;
+    } else {
+        info->cpu_usage = 0.0f;
+    }
+
+    // Compute runtime_ms.  The counter unit depends on portGET_RUN_TIME_COUNTER_VALUE():
+    // on POSIX it returns tms_utime ticks (CLK_TCK per second); convert via sysconf.
+    // Divide before multiplying (seconds * 1000 + sub-second remainder * 1000 / clk_tck)
+    // to avoid overflow when the counter value is large.
+    // On other architectures, runtime_ms is left as 0 (counter frequency is unknown
+    // without a port-specific conversion factor).
+#if defined(__unix__) || defined(__APPLE__)
+    {
+        long clk_tck = sysconf(_SC_CLK_TCK);
+        if (clk_tck > 0) {
+            uint64_t counter = (uint64_t)task_status.ulRunTimeCounter;
+            uint64_t freq    = (uint64_t)clk_tck;
+            info->runtime_ms = (counter / freq) * 1000ULL
+                               + (counter % freq) * 1000ULL / freq;
+        } else {
+            info->runtime_ms = 0;
+        }
+    }
+#else
+    info->runtime_ms = 0;
+#endif
+
+    return 0;
 }
 
 //==============================================================================

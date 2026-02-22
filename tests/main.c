@@ -389,6 +389,26 @@ static void test_thread( void )
     size_t proc_count = dmosi_thread_get_by_process( proc, NULL, 0 );
     TEST_ASSERT( proc_count >= 1, "thread_get_by_process count >= 1" );
 
+    /* Thread info for the current thread */
+    dmosi_thread_info_t info;
+    int info_ret = dmosi_thread_get_info( current, &info );
+    TEST_ASSERT( info_ret == 0, "thread_get_info returns 0 for current thread" );
+    TEST_ASSERT( info.state == DMOSI_THREAD_STATE_RUNNING,
+                 "thread_get_info: current thread state is RUNNING" );
+    TEST_ASSERT( info.cpu_usage >= 0.0f && info.cpu_usage <= 100.0f,
+                 "thread_get_info: cpu_usage in [0, 100]" );
+
+    /* Thread info with NULL thread (should use current thread) */
+    dmosi_thread_info_t info_null;
+    TEST_ASSERT( dmosi_thread_get_info( NULL, &info_null ) == 0,
+                 "thread_get_info with NULL thread returns 0" );
+    TEST_ASSERT( info_null.state == DMOSI_THREAD_STATE_RUNNING,
+                 "thread_get_info with NULL: state is RUNNING" );
+
+    /* Thread info with NULL info pointer must return -EINVAL */
+    TEST_ASSERT( dmosi_thread_get_info( current, NULL ) == -EINVAL,
+                 "thread_get_info with NULL info returns -EINVAL" );
+
     /* NULL input handling */
     TEST_ASSERT( dmosi_thread_join( NULL ) == -EINVAL,
                  "Join NULL thread returns -EINVAL" );
