@@ -94,7 +94,20 @@ target_link_libraries(freertos_config
     dmosi
 )
 
-# Set default FREERTOS_PORT if not defined (for standalone builds)
+# ======================================================================
+#               Architecture Selection
+# ======================================================================
+set(DMOSI_ARCH        "" CACHE STRING "Architecture of the target microcontroller (e.g. armv7)")
+set(DMOSI_ARCH_FAMILY "" CACHE STRING "Microcontroller family (e.g. cortex-m7)")
+set(DMOSI_COMPILER    "gcc" CACHE STRING "Compiler toolchain used for FreeRTOS port selection (default: gcc)")
+
+# Derive FREERTOS_PORT from DMOSI_ARCH + DMOSI_ARCH_FAMILY when the user
+# has supplied them but has not set FREERTOS_PORT explicitly.
+if(DMOSI_ARCH AND DMOSI_ARCH_FAMILY AND NOT DEFINED FREERTOS_PORT)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/arch_mapping.cmake)
+endif()
+
+# Fallback: use POSIX port for host/test builds when nothing was specified
 if(NOT DEFINED FREERTOS_PORT)
     set(FREERTOS_PORT "GCC_POSIX" CACHE STRING "FreeRTOS port")
     message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
