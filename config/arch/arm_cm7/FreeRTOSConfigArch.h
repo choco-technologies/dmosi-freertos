@@ -19,4 +19,12 @@
     #define DMOSI_TICK_TYPE_WIDTH_IN_BITS    TICK_TYPE_WIDTH_32_BITS
 #endif
 
+/* Map FreeRTOS ARM Cortex-M7 interrupt handler names to the dmosi system
+ * interrupt interface.  This lets users install dmosi_syscall_handler,
+ * dmosi_context_switch_handler, and dmosi_tick_handler directly in their
+ * vector tables instead of the FreeRTOS-internal names. */
+#define vPortSVCHandler        dmosi_syscall_handler
+#define xPortPendSVHandler     dmosi_context_switch_handler
+#define xPortSysTickHandler    dmosi_tick_handler
+
 #endif /* FREERTOS_CONFIG_ARCH_H */

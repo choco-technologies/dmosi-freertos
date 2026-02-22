@@ -12,4 +12,10 @@
     #define DMOSI_TICK_TYPE_WIDTH_IN_BITS    TICK_TYPE_WIDTH_64_BITS
 #endif
 
+/* Map FreeRTOS AArch64 interrupt handler names to the dmosi system interrupt
+ * interface.  FreeRTOS_SWI_Handler services the SVC exception (supervisor
+ * call) and FreeRTOS_Tick_Handler drives the RTOS time base. */
+#define FreeRTOS_SWI_Handler     dmosi_syscall_handler
+#define FreeRTOS_Tick_Handler    dmosi_tick_handler
+
 #endif /* FREERTOS_CONFIG_ARCH_H */
