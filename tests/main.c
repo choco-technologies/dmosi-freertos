@@ -413,8 +413,8 @@ static void test_init_deinit( void )
 {
     printf( "\n=== Testing init / deinit ===\n" );
 
-    /* Calling init again on an already-initialised system must succeed */
-    TEST_ASSERT( dmosi_init() == true, "Double dmosi_init() is idempotent" );
+    /* Calling init again on an already-initialised system must fail */
+    TEST_ASSERT( dmosi_init() == false, "Double dmosi_init() returns false" );
 
     /* Calling deinit when not initialised (after deinit) must succeed */
     TEST_ASSERT( dmosi_deinit() == true, "dmosi_deinit() returns true" );
@@ -434,17 +434,6 @@ static void test_task( void * pvParameters )
     printf( "========================================\n" );
     printf( "  DMOSI FreeRTOS Implementation Tests\n" );
     printf( "========================================\n" );
-
-    /* Initialise the DMOSI FreeRTOS backend from within the first task so
-     * that xTaskGetCurrentTaskHandle() returns a valid handle. */
-    if( !dmosi_init() )
-    {
-        printf( "ERROR: dmosi_init() failed\n" );
-        g_test_result = 1;
-        vTaskEndScheduler();
-        vTaskDelete( NULL );
-        return;
-    }
 
     test_mutex();
     test_semaphore();
@@ -472,6 +461,8 @@ static void test_task( void * pvParameters )
         g_test_result = 1;
     }
 
+    /* dmosi_deinit() cleans up all DMOSI resources and stops the scheduler,
+     * causing dmosi_init() in main() to return. */
     dmosi_deinit();
     vTaskEndScheduler();
     vTaskDelete( NULL );
@@ -489,7 +480,15 @@ int main( void )
                  configMAX_PRIORITIES - 2,
                  NULL );
 
-    vTaskStartScheduler();
+    /* dmosi_init() creates the system process and starts the FreeRTOS
+     * scheduler.  It blocks here until vTaskEndScheduler() is called.
+     * test_task calls dmosi_deinit() followed by vTaskEndScheduler() to
+     * stop the scheduler and allow this call to return. */
+    if( !dmosi_init() )
+    {
+        printf( "ERROR: dmosi_init() failed\n" );
+        return 1;
+    }
 
     return g_test_result;
 }
