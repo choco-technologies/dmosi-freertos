@@ -404,15 +404,24 @@
 
 /* portCONFIGURE_TIMER_FOR_RUN_TIME_STATS and portGET_RUN_TIME_COUNTER_VALUE
  * are required by FreeRTOS when configGENERATE_RUN_TIME_STATS == 1.
- * The defaults below are no-op stubs that satisfy the build; override them in
- * the architecture-specific FreeRTOSConfigArch.h (or your application's config)
- * to connect a real hardware timer for meaningful run-time statistics. */
+ * Dmod_GetUptime() provides a system-wide millisecond uptime counter that is
+ * used as the run-time stats clock source.  The timer configuration is a
+ * no-op because Dmod_GetUptime() does not require explicit timer setup.
+ * Override these macros in the architecture-specific FreeRTOSConfigArch.h
+ * (or your application's config) if a higher-resolution counter is needed. */
 #ifndef portCONFIGURE_TIMER_FOR_RUN_TIME_STATS
     #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()    do {} while( 0 )
 #endif
 
 #ifndef portGET_RUN_TIME_COUNTER_VALUE
-    #define portGET_RUN_TIME_COUNTER_VALUE    0UL
+    #define portGET_RUN_TIME_COUNTER_VALUE()    Dmod_GetUptime()
+#endif
+
+/* configRUN_TIME_COUNTER_TYPE must match the return type of the counter macro
+ * above.  Dmod_GetUptime() returns Dmod_Timestamp_t (uint64_t), so use the
+ * same width to avoid truncation of the uptime value. */
+#ifndef configRUN_TIME_COUNTER_TYPE
+    #define configRUN_TIME_COUNTER_TYPE    uint64_t
 #endif
 
 /* Set configUSE_TRACE_FACILITY to include additional task structure members
