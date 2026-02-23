@@ -1,6 +1,11 @@
+#ifdef __linux__
+#define _GNU_SOURCE
+#endif
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <stdint.h>
+#include <limits.h>
 #if defined(__unix__) || defined(__APPLE__)
 #include <unistd.h>
 #endif
@@ -8,6 +13,9 @@
 #include "dmod.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#if DMOD_USE_PTHREAD && defined(__linux__)
+#include <pthread.h>
+#endif
 
 /**
  * @brief Task-local storage index for storing dmosi_thread structure
@@ -740,4 +748,78 @@ void dmosi_thread_unregister_current(void)
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, NULL);
         vPortFree(thread);
     }
+}
+
+//==============================================================================
+//                              Dmod SAL Implementation
+//==============================================================================
+
+/**
+ * @brief Get remaining stack size of the current FreeRTOS task
+ *
+ * On POSIX (Linux with pthread support), FreeRTOS tasks run as real pthreads.
+ * The remaining stack is measured by comparing the address of a local variable
+ * (approximating the current stack pointer) with the pthread stack base
+ * obtained via pthread_getattr_np().
+ *
+ * On embedded targets, a local variable's address is compared against the
+ * FreeRTOS task stack base (pxStackBase from TaskStatus_t) to compute the
+ * number of bytes still available before a stack overflow would occur.
+ *
+ * @return Remaining stack size in bytes, or SIZE_MAX if not determinable
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t, _GetLeftStackSize, (void) )
+{
+    volatile char stack_var;
+
+#if DMOD_USE_PTHREAD && defined(__linux__)
+    /* On the POSIX FreeRTOS port each task runs as a real pthread.
+     * Use pthread_getattr_np() to obtain the actual stack bounds. */
+    pthread_attr_t attr;
+    void *stack_addr;
+    size_t stack_size;
+
+    if (pthread_getattr_np(pthread_self(), &attr) != 0) {
+        return SIZE_MAX;
+    }
+
+    if (pthread_attr_getstack(&attr, &stack_addr, &stack_size) != 0) {
+        pthread_attr_destroy(&attr);
+        return SIZE_MAX;
+    }
+
+    pthread_attr_destroy(&attr);
+
+    uintptr_t current_sp = (uintptr_t)&stack_var;
+    uintptr_t stack_base = (uintptr_t)stack_addr;
+
+    if (current_sp <= stack_base) {
+        return 0;
+    }
+
+    return (size_t)(current_sp - stack_base);
+#else
+    /* On embedded targets, use the FreeRTOS task stack base. */
+    TaskHandle_t handle = xTaskGetCurrentTaskHandle();
+
+    if (handle == NULL) {
+        return SIZE_MAX;
+    }
+
+    TaskStatus_t status;
+    vTaskGetInfo(handle, &status, pdFALSE, eInvalid);
+
+    if (status.pxStackBase == NULL) {
+        return SIZE_MAX;
+    }
+
+    uintptr_t current_sp = (uintptr_t)&stack_var;
+    uintptr_t stack_base = (uintptr_t)status.pxStackBase;
+
+    if (current_sp <= stack_base) {
+        return 0;
+    }
+
+    return (size_t)(current_sp - stack_base);
+#endif
 }
