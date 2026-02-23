@@ -5,7 +5,9 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <stdint.h>
+#include <limits.h>
 #include "dmod.h"
+#include "dmod_sal.h"
 #include "dmosi.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -424,6 +426,13 @@ static void test_thread( void )
                  "Get module name with NULL (returns current thread's module name)" );
     dmosi_thread_destroy( NULL );
     TEST_ASSERT( true, "Destroy NULL thread does not crash" );
+
+    /* Dmod_GetLeftStackSize: must return a valid, non-zero, non-SIZE_MAX value */
+    size_t left_stack = Dmod_GetLeftStackSize();
+    TEST_ASSERT( left_stack > 0 && left_stack != SIZE_MAX,
+                 "Dmod_GetLeftStackSize returns non-zero, non-SIZE_MAX value" );
+    TEST_ASSERT( left_stack < ( size_t )1 * 1024 * 1024 * 1024,
+                 "Dmod_GetLeftStackSize returns a value below 1 GiB" );
 }
 
 /* =========================================================================
