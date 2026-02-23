@@ -466,7 +466,7 @@
  * execution on the failing line for viewing in a debugger. */
 
 /* *INDENT-OFF* */
-#define configASSERT( x )    DMOD_ASSERT( x )
+#define configASSERT( x )    DMOD_ASSERT( !!( x ) )
 /* *INDENT-ON* */
 
 /******************************************************************************/

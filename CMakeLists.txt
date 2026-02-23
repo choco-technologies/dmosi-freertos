@@ -91,8 +91,13 @@ endif()
 # Fallback: use POSIX port for host/test builds when nothing was specified
 if(NOT DEFINED FREERTOS_PORT)
     set(FREERTOS_PORT "GCC_POSIX" CACHE STRING "FreeRTOS port")
-    set(FREERTOS_ARCH_CONFIG_SUBDIR "posix")
     message(STATUS "FREERTOS_PORT not set, using default: ${FREERTOS_PORT}")
+endif()
+
+# For the GCC_POSIX port, always set the arch config subdir (whether the port
+# was derived above or supplied explicitly on the command line).
+if(FREERTOS_PORT STREQUAL "GCC_POSIX" AND NOT FREERTOS_ARCH_CONFIG_SUBDIR)
+    set(FREERTOS_ARCH_CONFIG_SUBDIR "posix")
 endif()
 
 add_library(freertos_config INTERFACE)
@@ -172,6 +177,9 @@ target_link_libraries(dmosi_freertos PUBLIC
 target_compile_definitions(dmosi_freertos PRIVATE
     DMOSI_FREERTOS_VERSION="${PROJECT_VERSION}"
 )
+
+# Treat warnings as errors for this project's sources
+target_compile_options(dmosi_freertos PRIVATE -Wall -Wextra -Werror)
 
 # ======================================================================
 #               Tests
