@@ -402,6 +402,19 @@
  */
 #define configGENERATE_RUN_TIME_STATS           1
 
+/* portCONFIGURE_TIMER_FOR_RUN_TIME_STATS and portGET_RUN_TIME_COUNTER_VALUE
+ * are required by FreeRTOS when configGENERATE_RUN_TIME_STATS == 1.
+ * The defaults below are no-op stubs that satisfy the build; override them in
+ * the architecture-specific FreeRTOSConfigArch.h (or your application's config)
+ * to connect a real hardware timer for meaningful run-time statistics. */
+#ifndef portCONFIGURE_TIMER_FOR_RUN_TIME_STATS
+    #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()    do {} while( 0 )
+#endif
+
+#ifndef portGET_RUN_TIME_COUNTER_VALUE
+    #define portGET_RUN_TIME_COUNTER_VALUE    0UL
+#endif
+
 /* Set configUSE_TRACE_FACILITY to include additional task structure members
  * are used by trace and visualisation functions and tools.  Set to 0 to exclude
  * the additional information from the structures. Defaults to 0 if left
