@@ -173,6 +173,9 @@ target_compile_definitions(dmosi_freertos PRIVATE
     DMOSI_FREERTOS_VERSION="${PROJECT_VERSION}"
 )
 
+# Treat warnings as errors for this project's sources
+target_compile_options(dmosi_freertos PRIVATE -Wall -Wextra -Werror)
+
 # ======================================================================
 #               Tests
 # ======================================================================
