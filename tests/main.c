@@ -436,6 +436,24 @@ static void test_thread( void )
 }
 
 /* =========================================================================
+ * Tick count tests
+ * ========================================================================= */
+static void test_tick_count( void )
+{
+    printf( "\n=== Testing tick count ===\n" );
+
+    /* By the time this test runs, several other tests with vTaskDelay() calls
+     * have already elapsed, so the tick counter is guaranteed to be > 0. */
+    uint32_t t1 = dmosi_get_tick_count();
+    TEST_ASSERT( t1 > 0, "dmosi_get_tick_count() returns non-zero after scheduler start" );
+
+    /* Tick count must advance after a delay */
+    vTaskDelay( pdMS_TO_TICKS( 50 ) );
+    uint32_t t2 = dmosi_get_tick_count();
+    TEST_ASSERT( t2 > t1, "dmosi_get_tick_count() advances after delay" );
+}
+
+/* =========================================================================
  * Init / deinit tests
  * ========================================================================= */
 static void test_init_deinit( void )
@@ -469,6 +487,7 @@ static void test_task( void * pvParameters )
     test_queue();
     test_timer();
     test_thread();
+    test_tick_count();
     test_init_deinit();
 
     printf( "\n========================================\n" );
