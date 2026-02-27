@@ -451,6 +451,14 @@ static void test_tick_count( void )
     vTaskDelay( pdMS_TO_TICKS( 50 ) );
     uint32_t t2 = dmosi_get_tick_count();
     TEST_ASSERT( t2 > t1, "dmosi_get_tick_count() advances after delay" );
+
+    /* Elapsed time must be reported in milliseconds (not raw ticks).
+     * A 50 ms delay should produce a delta in the range [40, 200] ms,
+     * which would be impossible if ticks were returned directly at the
+     * default 100 Hz tick rate (which would give a delta of only ~5). */
+    uint32_t elapsed = t2 - t1;
+    TEST_ASSERT( elapsed >= 40 && elapsed <= 200,
+                 "dmosi_get_tick_count() returns time in milliseconds (not raw ticks)" );
 }
 
 /* =========================================================================
