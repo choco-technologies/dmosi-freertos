@@ -91,6 +91,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _mutex_lock, (dmosi_mutex_t mutex) 
         return -EINVAL;
     }
 
+    if (!dmosi_is_started()) {
+        return -ENOTSUP;
+    }
+
     struct dmosi_mutex* mtx = (struct dmosi_mutex*)mutex;
     BaseType_t result;
 

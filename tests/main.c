@@ -462,6 +462,17 @@ static void test_tick_count( void )
 }
 
 /* =========================================================================
+ * is_started tests
+ * ========================================================================= */
+static void test_is_started( void )
+{
+    printf( "\n=== Testing is_started ===\n" );
+
+    TEST_ASSERT( dmosi_is_started() == true,
+                 "dmosi_is_started() returns true when scheduler is running" );
+}
+
+/* =========================================================================
  * Init / deinit tests
  * ========================================================================= */
 static void test_init_deinit( void )
@@ -496,6 +507,7 @@ static void test_task( void * pvParameters )
     test_timer();
     test_thread();
     test_tick_count();
+    test_is_started();
     test_init_deinit();
 
     printf( "\n========================================\n" );

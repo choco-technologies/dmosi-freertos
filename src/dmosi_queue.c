@@ -91,6 +91,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _queue_send, (dmosi_queue_t queue, 
         return -EINVAL;
     }
 
+    if (timeout_ms != 0 && !dmosi_is_started()) {
+        return -ENOTSUP;
+    }
+
     TickType_t ticks;
     
     if (timeout_ms < 0) {
@@ -131,6 +135,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _queue_receive, (dmosi_queue_t queu
     if (queue == NULL || item == NULL) {
         DMOD_LOG_ERROR("Invalid queue or item buffer (NULL)\n");
         return -EINVAL;
+    }
+
+    if (timeout_ms != 0 && !dmosi_is_started()) {
+        return -ENOTSUP;
     }
 
     TickType_t ticks;
