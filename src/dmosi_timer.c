@@ -134,6 +134,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_start, (dmosi_timer_t timer)
         return -EINVAL;
     }
 
+    if (!dmosi_is_started()) {
+        return -ENOTSUP;
+    }
+
     BaseType_t result = xTimerStart(timer->handle, portMAX_DELAY);
 
     return (result == pdPASS) ? 0 : -EIO;
@@ -151,6 +155,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_stop, (dmosi_timer_t timer) 
 {
     if (timer == NULL) {
         return -EINVAL;
+    }
+
+    if (!dmosi_is_started()) {
+        return -ENOTSUP;
     }
 
     BaseType_t result = xTimerStop(timer->handle, portMAX_DELAY);
@@ -174,6 +182,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_reset, (dmosi_timer_t timer)
         return -EINVAL;
     }
 
+    if (!dmosi_is_started()) {
+        return -ENOTSUP;
+    }
+
     BaseType_t result = xTimerReset(timer->handle, portMAX_DELAY);
 
     return (result == pdPASS) ? 0 : -EIO;
@@ -193,6 +205,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_set_period, (dmosi_timer_t t
 {
     if (timer == NULL || period_ms == 0) {
         return -EINVAL;
+    }
+
+    if (!dmosi_is_started()) {
+        return -ENOTSUP;
     }
 
     TickType_t period_ticks = ms_to_ticks(period_ms);

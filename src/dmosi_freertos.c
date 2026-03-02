@@ -68,6 +68,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _init, (void) )
     return true;
 }
 
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _is_started, (void) )
+{
+    return xTaskGetSchedulerState() == taskSCHEDULER_RUNNING;
+}
+
 DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _deinit, (void) )
 {
     if (g_system_process == NULL) {

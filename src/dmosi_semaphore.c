@@ -90,6 +90,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
         return -EINVAL;
     }
 
+    if (timeout_ms != 0 && !dmosi_is_started()) {
+        return -ENOTSUP;
+    }
+
     TickType_t ticks;
     
     if (timeout_ms < 0) {
