@@ -92,7 +92,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _mutex_lock, (dmosi_mutex_t mutex) 
     }
 
     if (!dmosi_is_started()) {
-        return -ENOTSUP;
+        return 0; // there is nothing to lock if the RTOS has not started
     }
 
     struct dmosi_mutex* mtx = (struct dmosi_mutex*)mutex;
@@ -120,6 +120,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _mutex_unlock, (dmosi_mutex_t mutex
 {
     if (mutex == NULL) {
         return -EINVAL;
+    }
+
+    if (!dmosi_is_started()) {
+        return 0; // there is nothing to unlock if the RTOS has not started
     }
 
     struct dmosi_mutex* mtx = (struct dmosi_mutex*)mutex;
