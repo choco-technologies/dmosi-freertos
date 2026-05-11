@@ -115,6 +115,7 @@ When `DMOSI_ARCH` and `DMOSI_ARCH_FAMILY` are both set and `FREERTOS_PORT` is no
 | `cortex-r4` | `GCC_ARM_CRX_NOGIC` |
 | `cortex-r5` | `GCC_ARM_CR5` |
 | RISC-V (`rv32*`, `rv64*`) | `GCC_RISC_V_GENERIC` |
+| `esp32`, `xtensa_esp32` | `GCC_XTENSA_ESP32` |
 | `posix` | `GCC_POSIX` |
 
 IAR toolchain mappings are supported for Cortex-M0 through Cortex-M7 and Cortex-M23/M33. For any unsupported combination, set `FREERTOS_PORT` manually.
