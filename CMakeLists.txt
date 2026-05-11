@@ -138,6 +138,25 @@ target_link_libraries(freertos_config
     dmosi
 )
 
+# The ESP32 Xtensa FreeRTOS port requires Xtensa HAL headers (xtensa/hal.h).
+# When building outside ESP-IDF component registration, add a best-effort
+# fallback include path from IDF_PATH if available.
+if(FREERTOS_PORT STREQUAL "GCC_XTENSA_ESP32")
+    if(TARGET idf::xtensa)
+        target_link_libraries(freertos_config INTERFACE idf::xtensa)
+    endif()
+
+    if(DEFINED ENV{IDF_PATH})
+        set(_idf_xtensa_include "$ENV{IDF_PATH}/components/xtensa/include")
+        if(EXISTS "${_idf_xtensa_include}/xtensa/hal.h")
+            target_include_directories(freertos_config
+                INTERFACE
+                $<BUILD_INTERFACE:${_idf_xtensa_include}>
+            )
+        endif()
+    endif()
+endif()
+
 # Add FreeRTOS subdirectory
 add_subdirectory(lib/freertos)
 
