@@ -1,0 +1,3 @@
+/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmod-subbuild/CMakeFiles/dmod-populate.dir
+/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmod-subbuild/CMakeFiles/edit_cache.dir
+/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmod-subbuild/CMakeFiles/rebuild_cache.dir

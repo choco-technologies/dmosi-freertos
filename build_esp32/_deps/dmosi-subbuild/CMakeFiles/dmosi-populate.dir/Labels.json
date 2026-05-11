@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/CMakeFiles/dmosi-populate"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/CMakeFiles/dmosi-populate.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/CMakeFiles/dmosi-populate-complete.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-build.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-configure.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-download.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-install.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-mkdir.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-patch.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-test.rule"
+		},
+		{
+			"file" : "/home/runner/work/dmosi-freertos/dmosi-freertos/build_esp32/_deps/dmosi-subbuild/dmosi-populate-prefix/src/dmosi-populate-stamp/dmosi-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"dmosi-populate"
+		],
+		"name" : "dmosi-populate"
+	}
+}
