@@ -154,6 +154,7 @@ if(FREERTOS_PORT STREQUAL "GCC_XTENSA_ESP32")
                 $<BUILD_INTERFACE:${_idf_xtensa_include}>
             )
         endif()
+        unset(_idf_xtensa_include)
     endif()
 endif()
 
