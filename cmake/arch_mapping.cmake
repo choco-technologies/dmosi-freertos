@@ -121,6 +121,7 @@ if(_compiler STREQUAL "gcc")
     # --- Xtensa / ESP32 / ESP32-S3 (LX6 and LX7 cores) -----------------
     elseif(_family STREQUAL "xtensa_esp32" OR _family STREQUAL "esp32"
             OR (_arch STREQUAL "xtensa" AND _family STREQUAL "esp32")
+            OR (_arch STREQUAL "xtensa" AND _family STREQUAL "esp32s3")
             OR _arch STREQUAL "xtensa_esp32"
             OR (_arch STREQUAL "xtensa" AND _family STREQUAL "lx7")
             OR (_arch STREQUAL "xtensa" AND _family STREQUAL "lx6"))

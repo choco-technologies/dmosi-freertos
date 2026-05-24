@@ -22,4 +22,20 @@
  * 16-byte stack alignment (configSTACK_ALIGNMENT). */
 #define CONFIG_FREERTOS_ISR_STACKSIZE    1792
 
+/* Target selection used by ESP-IDF Xtensa FreeRTOS port sources. */
+#ifndef CONFIG_IDF_TARGET_ESP32S3
+	#define CONFIG_IDF_TARGET_ESP32S3    1
+#endif
+
+/* Single-core standalone default for this build profile. */
+#ifndef CONFIG_FREERTOS_NO_AFFINITY
+	#define CONFIG_FREERTOS_NO_AFFINITY    -1
+#endif
+
+/* Minimum logging-related options consumed by esp_log.h macros. */
+#define CONFIG_LOG_MAXIMUM_LEVEL            3
+#define CONFIG_LOG_COLORS                   0
+#define CONFIG_LOG_TIMESTAMP_SOURCE_RTOS    0
+#define CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM  1
+
 #endif /* SDKCONFIG_STUB_H */

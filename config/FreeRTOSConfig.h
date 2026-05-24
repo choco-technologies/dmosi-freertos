@@ -48,7 +48,9 @@
  * include path when DMOSI_ARCH and DMOSI_ARCH_FAMILY are set in CMake.
  * If no arch directory is configured, config/FreeRTOSConfigArch.h is used. */
 #include "FreeRTOSConfigArch.h"
+#ifndef __ASSEMBLER__
 #include "dmod_sal.h"
+#endif
 
 /******************************************************************************/
 /* Hardware description related definitions. **********************************/
@@ -409,12 +411,14 @@
  * no-op because Dmod_GetUptime() does not require explicit timer setup.
  * Override these macros in the architecture-specific FreeRTOSConfigArch.h
  * (or your application's config) if a higher-resolution counter is needed. */
-#ifndef portCONFIGURE_TIMER_FOR_RUN_TIME_STATS
-    #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()    do {} while( 0 )
-#endif
+#if !defined(__XTENSA__)
+    #ifndef portCONFIGURE_TIMER_FOR_RUN_TIME_STATS
+        #define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS()    do {} while( 0 )
+    #endif
 
-#ifndef portGET_RUN_TIME_COUNTER_VALUE
-    #define portGET_RUN_TIME_COUNTER_VALUE()    Dmod_GetUptime()
+    #ifndef portGET_RUN_TIME_COUNTER_VALUE
+        #define portGET_RUN_TIME_COUNTER_VALUE()    Dmod_GetUptime()
+    #endif
 #endif
 
 /* configRUN_TIME_COUNTER_TYPE must match the return type of the counter macro
