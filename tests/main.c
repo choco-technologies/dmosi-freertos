@@ -131,26 +131,26 @@ static void test_semaphore( void )
     TEST_ASSERT( s != NULL, "Create counting semaphore (initial=1, max=5)" );
 
     /* Decrement count from 1 to 0 */
-    TEST_ASSERT( dmosi_semaphore_wait( s, 0 ) == 0,
+    TEST_ASSERT( dmosi_semaphore_wait( s, 1, 0 ) == 0,
                  "Wait on semaphore with count=1 succeeds" );
 
     /* Count is now 0: non-blocking wait must fail with -EAGAIN */
-    TEST_ASSERT( dmosi_semaphore_wait( s, 0 ) == -EAGAIN,
+    TEST_ASSERT( dmosi_semaphore_wait( s, 1, 0 ) == -EAGAIN,
                  "Wait on semaphore with count=0, no timeout returns -EAGAIN" );
 
     /* Post once: count becomes 1 */
-    TEST_ASSERT( dmosi_semaphore_post( s ) == 0, "Post to semaphore" );
+    TEST_ASSERT( dmosi_semaphore_post( s, 1 ) == 0, "Post to semaphore" );
 
     /* Wait with short timeout should succeed */
-    TEST_ASSERT( dmosi_semaphore_wait( s, 100 ) == 0,
+    TEST_ASSERT( dmosi_semaphore_wait( s, 1, 100 ) == 0,
                  "Wait on semaphore with timeout=100ms succeeds" );
 
     /* Fill to max and verify overflow */
     for( int i = 0; i < 5; i++ )
     {
-        dmosi_semaphore_post( s );
+        dmosi_semaphore_post( s, 1 );
     }
-    TEST_ASSERT( dmosi_semaphore_post( s ) == -EOVERFLOW,
+    TEST_ASSERT( dmosi_semaphore_post( s, 1 ) == -EOVERFLOW,
                  "Post beyond max_count returns -EOVERFLOW" );
 
     dmosi_semaphore_destroy( s );
@@ -162,9 +162,9 @@ static void test_semaphore( void )
                  "Create semaphore with initial_count>max_count returns NULL" );
 
     /* NULL input handling */
-    TEST_ASSERT( dmosi_semaphore_wait( NULL, 0 ) == -EINVAL,
+    TEST_ASSERT( dmosi_semaphore_wait( NULL, 1, 0 ) == -EINVAL,
                  "Wait on NULL semaphore returns -EINVAL" );
-    TEST_ASSERT( dmosi_semaphore_post( NULL ) == -EINVAL,
+    TEST_ASSERT( dmosi_semaphore_post( NULL, 1 ) == -EINVAL,
                  "Post to NULL semaphore returns -EINVAL" );
     dmosi_semaphore_destroy( NULL );
     TEST_ASSERT( true, "Destroy NULL semaphore does not crash" );
