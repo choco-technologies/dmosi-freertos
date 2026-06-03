@@ -80,10 +80,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _semaphore_destroy, (dmosi_semapho
  * or the timeout expires.
  * 
  * @param semaphore Semaphore handle
+ * @param count Number of semaphore units to take
  * @param timeout_ms Timeout in milliseconds (0 = no wait, -1 = wait forever)
  * @return int 0 on success, negative error code on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t semaphore, int32_t timeout_ms) )
+DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_wait, (dmosi_semaphore_t semaphore, uint32_t count, int32_t timeout_ms) )
 {
     if (semaphore == NULL) {
         DMOD_LOG_ERROR("Invalid semaphore handle (NULL)\n");
@@ -107,15 +108,18 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
         ticks = pdMS_TO_TICKS(timeout_ms);
     }
 
-    BaseType_t result = xSemaphoreTake(semaphore->handle, ticks);
-    
-    if (result == pdTRUE) {
-        return 0;
-    } else if (ticks == 0) {
-        return -EAGAIN;  // Would block
-    } else {
-        return -ETIMEDOUT;  // Timeout occurred
+    for (uint32_t i = 0; i < count; i++) {
+        BaseType_t result = xSemaphoreTake(semaphore->handle, ticks);
+        if (result != pdTRUE) {
+            if (ticks == 0) {
+                return -EAGAIN;  // Would block
+            } else {
+                return -ETIMEDOUT;  // Timeout occurred
+            }
+        }
     }
+
+    return 0;
 }
 
 /**
@@ -124,21 +128,23 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_wait, (dmosi_semaphore_t
  * Increments the semaphore count, potentially unblocking a waiting thread.
  * 
  * @param semaphore Semaphore handle
+ * @param count Number of semaphore units to release
  * @return int 0 on success, negative error code on failure
  */
-DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _semaphore_post, (dmosi_semaphore_t semaphore) )
+DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_post, (dmosi_semaphore_t semaphore, uint32_t count) )
 {
     if (semaphore == NULL) {
         DMOD_LOG_ERROR("Invalid semaphore handle (NULL)\n");
         return -EINVAL;
     }
 
-    BaseType_t result = xSemaphoreGive(semaphore->handle);
-    
-    if (result != pdTRUE) {
-        DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
-        return -EOVERFLOW;
+    for (uint32_t i = 0; i < count; i++) {
+        BaseType_t result = xSemaphoreGive(semaphore->handle);
+        if (result != pdTRUE) {
+            DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
+            return -EOVERFLOW;
+        }
     }
-    
+
     return 0;
 }
