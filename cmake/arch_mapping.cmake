@@ -118,10 +118,13 @@ if(_compiler STREQUAL "gcc")
         set(FREERTOS_PORT "GCC_RISC_V_GENERIC")
         set(FREERTOS_ARCH_CONFIG_SUBDIR "risc_v")
 
-    # --- Xtensa / ESP32 --------------------------------------------------
+    # --- Xtensa / ESP32 / ESP32-S3 (LX6 and LX7 cores) -----------------
     elseif(_family STREQUAL "xtensa_esp32" OR _family STREQUAL "esp32"
             OR (_arch STREQUAL "xtensa" AND _family STREQUAL "esp32")
-            OR _arch STREQUAL "xtensa_esp32")
+            OR (_arch STREQUAL "xtensa" AND _family STREQUAL "esp32s3")
+            OR _arch STREQUAL "xtensa_esp32"
+            OR (_arch STREQUAL "xtensa" AND _family STREQUAL "lx7")
+            OR (_arch STREQUAL "xtensa" AND _family STREQUAL "lx6"))
         set(FREERTOS_PORT "GCC_XTENSA_ESP32")
         set(FREERTOS_ARCH_CONFIG_SUBDIR "xtensa_esp32")
 

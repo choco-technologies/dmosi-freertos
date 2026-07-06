@@ -146,20 +146,82 @@ if(FREERTOS_PORT STREQUAL "GCC_XTENSA_ESP32")
         target_link_libraries(freertos_config INTERFACE idf::xtensa)
     endif()
 
-    if(DEFINED ENV{IDF_PATH})
-        set(_idf_xtensa_include "$ENV{IDF_PATH}/components/xtensa/include")
-        if(EXISTS "${_idf_xtensa_include}/xtensa/hal.h")
-            target_include_directories(freertos_config
-                INTERFACE
-                $<BUILD_INTERFACE:${_idf_xtensa_include}>
+    if(DEFINED ENV{IDF_PATH} AND NOT "$ENV{IDF_PATH}" STREQUAL "")
+        set(_idf_path "$ENV{IDF_PATH}")
+    elseif(DEFINED IDF_PATH AND NOT "${IDF_PATH}" STREQUAL "")
+        set(_idf_path "${IDF_PATH}")
+    endif()
+
+    if(DEFINED _idf_path)
+        set(DMOSI_IDF_PATH "${_idf_path}")
+
+        set(_idf_esp32_include_dirs
+            "${_idf_path}/components/xtensa/include"
+            "${_idf_path}/components/esp_hw_support/include"
+            "${_idf_path}/components/esp_hw_support/include/soc"
+            "${_idf_path}/components/hal/include"
+            "${_idf_path}/components/soc/include"
+            "${_idf_path}/components/esp_rom/include"
+            "${_idf_path}/components/esp_common/include"
+            "${_idf_path}/components/esp_system/include"
+            "${_idf_path}/components/esp_timer/include"
+            "${_idf_path}/components/log/include"
+            "${_idf_path}/components/heap/include"
+        )
+
+        if(DEFINED DMOD_CPU AND NOT "${DMOD_CPU}" STREQUAL "")
+            list(APPEND _idf_esp32_include_dirs
+                "${_idf_path}/components/xtensa/${DMOD_CPU}/include"
+                "${_idf_path}/components/hal/${DMOD_CPU}/include"
+                "${_idf_path}/components/soc/${DMOD_CPU}/include"
+                "${_idf_path}/components/esp_rom/include/${DMOD_CPU}"
             )
         endif()
-        unset(_idf_xtensa_include)
+
+        foreach(_idf_include_dir IN LISTS _idf_esp32_include_dirs)
+            if(EXISTS "${_idf_include_dir}")
+                target_include_directories(freertos_config
+                    INTERFACE
+                    $<BUILD_INTERFACE:${_idf_include_dir}>
+                )
+            endif()
+        endforeach()
+
+        unset(_idf_include_dir)
+        unset(_idf_esp32_include_dirs)
+        unset(_idf_path)
     endif()
+
+    target_compile_definitions(freertos_config
+        INTERFACE
+        portNUM_PROCESSORS=1
+    )
 endif()
 
 # Add FreeRTOS subdirectory
 add_subdirectory(lib/freertos)
+
+if(FREERTOS_PORT STREQUAL "GCC_XTENSA_ESP32" AND DEFINED DMOSI_IDF_PATH)
+    set(_dmosi_xtensa_asm_sources
+        "${DMOSI_IDF_PATH}/components/xtensa/xtensa_intr_asm.S"
+        "${DMOSI_IDF_PATH}/components/esp_system/port/arch/xtensa/panic_handler_asm.S"
+    )
+
+    foreach(_dmosi_xtensa_asm_source IN LISTS _dmosi_xtensa_asm_sources)
+        if(EXISTS "${_dmosi_xtensa_asm_source}")
+            target_sources(freertos_kernel_port PRIVATE "${_dmosi_xtensa_asm_source}")
+        endif()
+    endforeach()
+
+    target_sources(freertos_kernel_port PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/arch/xtensa/xtensa_compat_stubs.c"
+    )
+
+    target_compile_definitions(freertos_kernel_port PRIVATE XT_SIMULATOR=1)
+
+    unset(_dmosi_xtensa_asm_source)
+    unset(_dmosi_xtensa_asm_sources)
+endif()
 
 # ======================================================================
 #               DMOSI Process Management
@@ -200,6 +262,10 @@ target_compile_definitions(dmosi_freertos PRIVATE
 
 # Treat warnings as errors for this project's sources
 target_compile_options(dmosi_freertos PRIVATE -Wall -Wextra -Werror)
+
+if(FREERTOS_PORT STREQUAL "GCC_XTENSA_ESP32")
+    target_compile_options(dmosi_freertos PRIVATE -Wno-unused-parameter)
+endif()
 
 # ======================================================================
 #               Tests

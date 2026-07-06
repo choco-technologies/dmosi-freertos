@@ -37,6 +37,7 @@ void vPortFree(void* ptr)
  * Since we are using a custom allocator, we return 0 to indicate that this information
  * is not available.
  */
+#if !defined(__XTENSA__)
 size_t xPortGetFreeHeapSize(void)
 {
     return 0;
@@ -53,6 +54,7 @@ size_t xPortGetMinimumEverFreeHeapSize(void)
 {
     return 0;
 }
+#endif
 
 /**
  * @brief Initialize memory blocks (not needed for custom allocator)
