@@ -189,6 +189,16 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
         return NULL;
     }
 
+    // Register the TLS association immediately, from the creating task, instead of
+    // relying solely on the new task to self-register the first time it runs (see
+    // thread_wrapper). thread_enumerate() (and so dmosi_process_find_by_id(),
+    // dmosi_thread_get_by_process(), etc.) discovers threads/processes purely by
+    // scanning FreeRTOS's task list for a non-NULL TLS slot - without this, a
+    // caller that looks up the newly created thread/process before the scheduler
+    // has given the new task any timeslice would not find it, even though
+    // xTaskCreate() already succeeded and the task is fully valid.
+    vTaskSetThreadLocalStoragePointer(thread->handle, DMOD_THREAD_TLS_INDEX, thread);
+
     return (dmosi_thread_t)thread;
 }
 
