@@ -18,6 +18,13 @@
 __attribute__((weak)) void vApplicationStackOverflowHook( TaskHandle_t xTask, char * pcTaskName )
 {
     (void) xTask;
+
+    // This fires with an already overflowed stack, which may have clobbered adjacent
+    // memory (e.g. this thread's dmosi_process linkage) that the normal Dmod_Printf
+    // path depends on (Dmod_LockStdio -> dmosi_process_current() -> ...), and reading
+    // corrupted state there can hard-fault a second time. Force raw kernel writes
+    // first so DMOD_LOG_ERROR below stays safe without changing how it's written.
+    Dmod_SetForceKernelWrite(true);
     DMOD_LOG_ERROR("Stack overflow detected in task: %s\n", pcTaskName);
 
     // Disable interrupts and halt the system

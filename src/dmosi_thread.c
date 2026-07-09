@@ -199,6 +199,26 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
     // xTaskCreate() already succeeded and the task is fully valid.
     vTaskSetThreadLocalStoragePointer(thread->handle, DMOD_THREAD_TLS_INDEX, thread);
 
+    // The stack buffer was allocated by xTaskCreate() via pvPortMalloc() a few lines up,
+    // at a point where this thread had no TLS entry yet - pvPortMalloc() attributes
+    // memory to dmosi_thread_get_module_name(NULL) (the *calling* thread's module, found
+    // via dmosi_thread_current()), which for brand-new threads either resolves to the
+    // parent's own name (wrong owner) or NULL (untagged) depending on timing. Now that
+    // thread->process is set, retag the stack directly under its own module name instead
+    // of leaving it stuck under someone else's name or none at all.
+    const char* stackModuleName = dmosi_thread_get_module_name((dmosi_thread_t)thread);
+    if (stackModuleName != NULL) {
+        TaskStatus_t taskStatus;
+        vTaskGetInfo(thread->handle, &taskStatus, pdFALSE, eInvalid);
+        if (taskStatus.pxStackBase != NULL) {
+            Dmod_RetagEx(taskStatus.pxStackBase, stackModuleName);
+        }
+
+        // TaskHandle_t *is* the TCB pointer in this (dynamic allocation) configuration -
+        // it was also allocated via pvPortMalloc() before TLS was set, same as the stack.
+        Dmod_RetagEx(thread->handle, stackModuleName);
+    }
+
     return (dmosi_thread_t)thread;
 }
 
