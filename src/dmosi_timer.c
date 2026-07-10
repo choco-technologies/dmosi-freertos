@@ -123,7 +123,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _timer_destroy, (dmosi_timer_t tim
 /**
  * @brief Start a timer
  *
- * Starts a timer that is in the dormant state.
+ * Starts a timer that is in the dormant state. Safe to call from both task
+ * and interrupt context: the FreeRTOS "FromISR" API is used automatically
+ * when called from an interrupt handler.
  *
  * @param timer Timer handle to start
  * @return int 0 on success, negative error code on failure
@@ -138,7 +140,15 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_start, (dmosi_timer_t timer)
         return -ENOTSUP;
     }
 
-    BaseType_t result = xTimerStart(timer->handle, portMAX_DELAY);
+    BaseType_t result;
+
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        result = xTimerStartFromISR(timer->handle, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    } else {
+        result = xTimerStart(timer->handle, portMAX_DELAY);
+    }
 
     return (result == pdPASS) ? 0 : -EIO;
 }
@@ -146,7 +156,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_start, (dmosi_timer_t timer)
 /**
  * @brief Stop a timer
  *
- * Stops an active timer.
+ * Stops an active timer. Safe to call from both task and interrupt context:
+ * the FreeRTOS "FromISR" API is used automatically when called from an
+ * interrupt handler.
  *
  * @param timer Timer handle to stop
  * @return int 0 on success, negative error code on failure
@@ -161,7 +173,15 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_stop, (dmosi_timer_t timer) 
         return -ENOTSUP;
     }
 
-    BaseType_t result = xTimerStop(timer->handle, portMAX_DELAY);
+    BaseType_t result;
+
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        result = xTimerStopFromISR(timer->handle, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    } else {
+        result = xTimerStop(timer->handle, portMAX_DELAY);
+    }
 
     return (result == pdPASS) ? 0 : -EIO;
 }
@@ -171,7 +191,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_stop, (dmosi_timer_t timer) 
  *
  * Resets a timer.  If the timer is dormant, this starts it.
  * If it is already active, the expiry time is recalculated
- * relative to the current time.
+ * relative to the current time. Safe to call from both task and interrupt
+ * context: the FreeRTOS "FromISR" API is used automatically when called
+ * from an interrupt handler.
  *
  * @param timer Timer handle to reset
  * @return int 0 on success, negative error code on failure
@@ -186,7 +208,15 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_reset, (dmosi_timer_t timer)
         return -ENOTSUP;
     }
 
-    BaseType_t result = xTimerReset(timer->handle, portMAX_DELAY);
+    BaseType_t result;
+
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        result = xTimerResetFromISR(timer->handle, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    } else {
+        result = xTimerReset(timer->handle, portMAX_DELAY);
+    }
 
     return (result == pdPASS) ? 0 : -EIO;
 }
@@ -195,7 +225,9 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_reset, (dmosi_timer_t timer)
  * @brief Change timer period
  *
  * Changes the period of a timer.  If the timer is currently active,
- * the expiry time is updated accordingly.
+ * the expiry time is updated accordingly. Safe to call from both task and
+ * interrupt context: the FreeRTOS "FromISR" API is used automatically when
+ * called from an interrupt handler.
  *
  * @param timer Timer handle
  * @param period_ms New timer period in milliseconds
@@ -212,8 +244,15 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _timer_set_period, (dmosi_timer_t t
     }
 
     TickType_t period_ticks = ms_to_ticks(period_ms);
+    BaseType_t result;
 
-    BaseType_t result = xTimerChangePeriod(timer->handle, period_ticks, portMAX_DELAY);
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        result = xTimerChangePeriodFromISR(timer->handle, period_ticks, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    } else {
+        result = xTimerChangePeriod(timer->handle, period_ticks, portMAX_DELAY);
+    }
 
     return (result == pdPASS) ? 0 : -EIO;
 }

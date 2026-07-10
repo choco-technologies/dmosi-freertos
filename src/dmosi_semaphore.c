@@ -124,9 +124,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_wait, (dmosi_semaphore_t
 
 /**
  * @brief Post to a semaphore (increment)
- * 
+ *
  * Increments the semaphore count, potentially unblocking a waiting thread.
- * 
+ * Safe to call from both task and interrupt context: the FreeRTOS "FromISR"
+ * API is used automatically when called from an interrupt handler.
+ *
  * @param semaphore Semaphore handle
  * @param count Number of semaphore units to release
  * @return int 0 on success, negative error code on failure
@@ -138,11 +140,25 @@ DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_post, (dmosi_semaphore_t
         return -EINVAL;
     }
 
-    for (uint32_t i = 0; i < count; i++) {
-        BaseType_t result = xSemaphoreGive(semaphore->handle);
-        if (result != pdTRUE) {
-            DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
-            return -EOVERFLOW;
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+        for (uint32_t i = 0; i < count; i++) {
+            BaseType_t result = xSemaphoreGiveFromISR(semaphore->handle, &xHigherPriorityTaskWoken);
+            if (result != pdTRUE) {
+                DMOD_LOG_ERROR("Failed to post semaphore from ISR (overflow or invalid state)\n");
+                return -EOVERFLOW;
+            }
+        }
+
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    } else {
+        for (uint32_t i = 0; i < count; i++) {
+            BaseType_t result = xSemaphoreGive(semaphore->handle);
+            if (result != pdTRUE) {
+                DMOD_LOG_ERROR("Failed to post semaphore (overflow or invalid state)\n");
+                return -EOVERFLOW;
+            }
         }
     }
 

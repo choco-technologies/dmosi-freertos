@@ -75,10 +75,13 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, void, _queue_destroy, (dmosi_queue_t que
 
 /**
  * @brief Send data to a queue
- * 
+ *
  * Sends an item to the back of the queue, blocking until space is available
- * or the timeout expires.
- * 
+ * or the timeout expires. Safe to call from both task and interrupt context:
+ * the FreeRTOS "FromISR" API is used automatically when called from an
+ * interrupt handler, in which case the send never blocks regardless of
+ * @p timeout_ms.
+ *
  * @param queue Queue handle
  * @param item Pointer to the item to send
  * @param timeout_ms Timeout in milliseconds (0 = no wait, -1 = wait forever)
@@ -91,12 +94,21 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _queue_send, (dmosi_queue_t queue, 
         return -EINVAL;
     }
 
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        BaseType_t result = xQueueSendFromISR(queue->handle, item, &xHigherPriorityTaskWoken);
+
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+
+        return (result == pdTRUE) ? 0 : -EAGAIN;  // Would block, ISR cannot wait
+    }
+
     if (timeout_ms != 0 && !dmosi_is_started()) {
         return -ENOTSUP;
     }
 
     TickType_t ticks;
-    
+
     if (timeout_ms < 0) {
         // Wait forever
         ticks = portMAX_DELAY;
@@ -109,7 +121,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _queue_send, (dmosi_queue_t queue, 
     }
 
     BaseType_t result = xQueueSend(queue->handle, item, ticks);
-    
+
     if (result == pdTRUE) {
         return 0;
     } else if (ticks == 0) {
