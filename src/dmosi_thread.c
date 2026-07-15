@@ -26,6 +26,19 @@
 #define DMOD_THREAD_TLS_INDEX    0
 
 /**
+ * @brief Sentinel TLS value marking "wrapper creation in progress" for the current task
+ *
+ * thread_new() allocates the dmosi_thread struct via pvPortMalloc(), which itself
+ * calls dmosi_thread_get_module_name(NULL) -> dmosi_thread_current() to tag the
+ * allocation. For a task whose TLS slot is still NULL (i.e. this very call is the
+ * one populating it for the first time), that re-entrant call would otherwise see
+ * TLS == NULL again and call thread_new() a second time, recursing forever until
+ * the stack overflows. Storing this sentinel before calling thread_new() lets the
+ * re-entrant call detect "already being created" and return NULL instead.
+ */
+#define DMOSI_THREAD_TLS_BOOTSTRAPPING    ((struct dmosi_thread*)1)
+
+/**
  * @brief Fallback process used during system initialization
  *
  * Set by dmosi_thread_set_init_process() before the first call to
@@ -363,8 +376,17 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_current, (void) 
         DMOD_THREAD_TLS_INDEX
     );
     
+    // Re-entered for this same task while its wrapper is still being created
+    // (see DMOSI_THREAD_TLS_BOOTSTRAPPING) - break the recursion here instead
+    // of calling thread_new() again.
+    if (thread == DMOSI_THREAD_TLS_BOOTSTRAPPING) {
+        return NULL;
+    }
+
     // If no structure exists, allocate and store one
     if (thread == NULL) {
+        vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, DMOSI_THREAD_TLS_BOOTSTRAPPING);
+
         // Use g_init_process as a fallback during system initialization to break
         // the circular dependency: _thread_current -> _process_current -> _thread_current.
         // Once init is complete, g_init_process is cleared and subsequent tasks
@@ -372,13 +394,14 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_current, (void) 
         dmosi_process_t process = (g_init_process != NULL) ? g_init_process : dmosi_process_current();
         thread = thread_new(current_handle, NULL, NULL, process, 0 /* stack_size unknown for externally created tasks */);
         if (thread == NULL) {
+            vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, NULL);
             return NULL;
         }
-        
+
         // Store in task-local storage for future calls
         vTaskSetThreadLocalStoragePointer(current_handle, DMOD_THREAD_TLS_INDEX, thread);
     }
-    
+
     return (dmosi_thread_t)thread;
 }
 
