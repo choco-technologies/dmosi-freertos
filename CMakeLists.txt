@@ -179,6 +179,7 @@ add_library(dmosi_freertos STATIC
     src/dmosi_timer.c
     src/dmosi_time.c
     src/dmosi_interrupt.c
+    src/dmosi_rand.c
 )
 
 target_include_directories(dmosi_freertos PUBLIC
