@@ -131,7 +131,10 @@ DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_wait, (dmosi_semaphore_t
  *
  * @param semaphore Semaphore handle
  * @param count Number of semaphore units to release
- * @return int 0 on success, negative error code on failure
+ * @return int 0 on success, -EINVAL for a NULL handle, -EOVERFLOW if the
+ *         semaphore was already at its maximum count (from an ISR this is a
+ *         routine "producer outran consumer" condition, reported but not
+ *         logged - see the comment on that path)
  */
 DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_post, (dmosi_semaphore_t semaphore, uint32_t count) )
 {
@@ -143,15 +146,27 @@ DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_post, (dmosi_semaphore_t
     if (xPortIsInsideInterrupt()) {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
+        int ret = 0;
         for (uint32_t i = 0; i < count; i++) {
             BaseType_t result = xSemaphoreGiveFromISR(semaphore->handle, &xHigherPriorityTaskWoken);
             if (result != pdTRUE) {
-                DMOD_LOG_ERROR("Failed to post semaphore from ISR (overflow or invalid state)\n");
-                return -EOVERFLOW;
+                /* A full counting semaphore is the normal way a producer ISR
+                 * outruns its consumer task, not a fault, so this stays silent:
+                 * formatting a message here would run on every dropped post in
+                 * the middle of a hot interrupt. The caller gets -EOVERFLOW and
+                 * decides - a driver whose readiness is tracked elsewhere (e.g.
+                 * dmeth's DMA descriptor ring) can simply ignore it.
+                 *
+                 * Break rather than return: earlier iterations may already have
+                 * woken a higher-priority task, and skipping the yield below
+                 * would leave it waiting until the next tick. */
+                ret = -EOVERFLOW;
+                break;
             }
         }
 
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        return ret;
     } else {
         for (uint32_t i = 0; i < count; i++) {
             BaseType_t result = xSemaphoreGive(semaphore->handle);
