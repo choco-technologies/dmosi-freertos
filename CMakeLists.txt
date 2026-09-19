@@ -161,6 +161,17 @@ endif()
 # Add FreeRTOS subdirectory
 add_subdirectory(lib/freertos)
 
+# config/FreeRTOSConfig.h pulls in dmod_sal.h, so the FreeRTOS kernel targets
+# compiled against it also need DMOD_CURRENT_ALLOCATOR (see dmod's
+# dmod_sal.h). Set it directly on those targets rather than via
+# freertos_config (INTERFACE) so it doesn't also propagate into
+# dmosi_freertos's own compilation, which already sets its own value via
+# dmod_set_current_allocator() below and would collide under -Werror.
+target_compile_definitions(freertos_kernel PRIVATE DMOD_CURRENT_ALLOCATOR="freertos_kernel")
+if(TARGET freertos_kernel_port)
+    target_compile_definitions(freertos_kernel_port PRIVATE DMOD_CURRENT_ALLOCATOR="freertos_kernel")
+endif()
+
 # ======================================================================
 #               DMOSI Process Management
 # ======================================================================
