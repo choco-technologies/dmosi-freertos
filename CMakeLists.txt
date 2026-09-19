@@ -195,6 +195,10 @@ target_link_libraries(dmosi_freertos PUBLIC
     freertos_kernel
 )
 
+# dmod_sal.h requires DMOD_CURRENT_ALLOCATOR to be defined on the system side -
+# see dmod's dmod_set_current_allocator() in scripts/CMakeLists.txt.
+dmod_set_current_allocator(dmosi_freertos)
+
 # Define version string for the library
 target_compile_definitions(dmosi_freertos PRIVATE
     DMOSI_FREERTOS_VERSION="${PROJECT_VERSION}"

@@ -7,6 +7,7 @@ project(dmosi_freertos_tests
 
 # Add the test executable
 add_executable(${PROJECT_NAME} main.c)
+dmod_set_current_allocator(${PROJECT_NAME})
 
 # Link against dmosi_freertos (which pulls in dmod, dmosi, dmosi_proc, freertos_kernel).
 # dmosi_freertos must come before dmosi so that its strong implementations
