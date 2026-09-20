@@ -253,7 +253,18 @@
  * task.  See
  * https://www.freertos.org/RTOS-software-timer-service-daemon-task.html Only
  * used if configUSE_TIMERS is set to 1. */
-#define configTIMER_TASK_STACK_DEPTH    configMINIMAL_STACK_SIZE
+/* configMINIMAL_STACK_SIZE (128 words) is far too small for any timer
+ * callback that touches the network stack, and dmdhcp's retransmission and
+ * T1/T2 renewal both transmit from one: dmdhcp -> dmudp -> dmip ->
+ * dmnetbridge -> dmeth. Measured peak on that path (uxTaskGetStackHighWaterMark
+ * after a full DHCP lease) is 304 words; the unicast renewal variant also
+ * resolves the server's MAC through dmarp, which is deeper still - that is
+ * the path that overflowed dhcpc's own 4608-byte stack before this was
+ * tracked down. Hence the margin. Override per-project if the timer task
+ * only ever runs trivial callbacks. */
+#ifndef configTIMER_TASK_STACK_DEPTH
+    #define configTIMER_TASK_STACK_DEPTH    2048
+#endif
 
 /* configTIMER_QUEUE_LENGTH sets the length of the queue (the number of discrete
  * items the queue can hold) used to send commands to the timer task.  See
