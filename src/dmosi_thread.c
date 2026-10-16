@@ -590,28 +590,29 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_kill, (dmosi_thread_t threa
 
     TaskHandle_t current = xTaskGetCurrentTaskHandle();
 
-    // A killed thread never reaches thread_wrapper's own completion path, so
-    // invoke its exit callbacks here. Note these run in the killer's context
-    // when killing another thread (the killed task is deleted, not resumed).
-    thread_invoke_exit_callbacks(thread);
+    /* Hide the task from enumeration before callbacks can wake a process
+     * reaper. Keep TLS associated while callbacks run so SAL allocation and
+     * logging cannot implicitly register another descriptor for this task. */
+    taskENTER_CRITICAL();
+    if (thread->handle == NULL || (thread->completed && thread->entry != NULL)) {
+        taskEXIT_CRITICAL();
+        return 0;
+    }
+    TaskHandle_t handle = thread->handle;
+    thread->handle = NULL;
+    taskEXIT_CRITICAL();
 
-    // Mark thread as completed and notify any joiner
+    if (handle != current) vTaskSuspend(handle);
+    thread_invoke_exit_callbacks(thread);
     taskENTER_CRITICAL();
     thread->completed = true;
     TaskHandle_t joiner_to_notify = thread->joiner;
+    vTaskSetThreadLocalStoragePointer(handle, DMOD_THREAD_TLS_INDEX, NULL);
     taskEXIT_CRITICAL();
-
-    if (joiner_to_notify != NULL) {
-        xTaskNotifyGive(joiner_to_notify);
-    }
-
-    // Delete the FreeRTOS task if it is not the current task
-    if (thread->handle != NULL && thread->handle != current) {
-        vTaskDelete(thread->handle);
-    } else if (thread->handle != NULL && thread->handle == current) {
-        // Self-termination: delete this task; does not return
-        vTaskDelete(NULL);
-    }
+    if (joiner_to_notify != NULL) xTaskNotifyGive(joiner_to_notify);
+    /* TCB remains owned by FreeRTOS, including delayed idle cleanup after
+     * self-deletion. A repeated kill never accesses the old handle again. */
+    vTaskDelete(handle == current ? NULL : handle);
 
     return 0;
 }
@@ -653,7 +654,7 @@ static size_t thread_enumerate(dmosi_process_t process, dmosi_thread_t* threads,
     for (UBaseType_t i = 0; i < filled; i++) {
         struct dmosi_thread* t = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(
             task_array[i].xHandle, DMOD_THREAD_TLS_INDEX);
-        if (t == NULL) {
+        if (t == NULL || t == DMOSI_THREAD_TLS_BOOTSTRAPPING || t->handle == NULL) {
             continue;
         }
         if (process != NULL && t->process != process) {

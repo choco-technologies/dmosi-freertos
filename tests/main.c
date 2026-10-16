@@ -325,6 +325,12 @@ static void slow_thread_entry( void * arg )
     vTaskDelay( portMAX_DELAY );
 }
 
+static void self_kill_entry(void* arg)
+{
+    (void)arg;
+    dmosi_thread_kill(dmosi_thread_current(),0);
+}
+
 static volatile int g_exit_callback_count = 0;
 static volatile dmosi_thread_t g_exit_callback_thread = NULL;
 static volatile void * g_exit_callback_arg = NULL;
@@ -446,10 +452,21 @@ static void test_thread( void )
                  "Kill running thread returns 0" );
     TEST_ASSERT( g_exit_callback_count == 1,
                  "Exit callback invoked when thread is killed" );
+    dmosi_thread_sleep(20); /* Allow idle to reclaim the first TCB. */
+    TEST_ASSERT( dmosi_thread_kill( slow, 0 ) == 0,
+                 "Repeated kill does not delete a reclaimed task" );
     /* After kill the thread is marked completed; join must return immediately */
     TEST_ASSERT( dmosi_thread_join( slow ) == 0,
                  "Join killed thread returns 0" );
     dmosi_thread_destroy( slow );
+
+    dmosi_thread_t self_killed=dmosi_thread_create(
+        self_kill_entry,NULL,1,4096,"self_kill",NULL);
+    TEST_ASSERT(self_killed!=NULL,"Create self-terminating thread");
+    TEST_ASSERT(dmosi_thread_join(self_killed)==0,"Join self-terminated thread");
+    dmosi_thread_sleep(20);
+    TEST_ASSERT(dmosi_thread_kill(self_killed,0)==0,"Repeated kill after self-termination");
+    dmosi_thread_destroy(self_killed);
 
     /* Get all threads count */
     size_t count = dmosi_thread_get_all( NULL, 0 );
