@@ -158,7 +158,15 @@ static void thread_wrapper(void* pvParameters)
 {
     struct dmosi_thread* thread = (struct dmosi_thread*)pvParameters;
     TaskHandle_t joiner_to_notify = NULL;
-    
+
+    // Wait until dmosi_thread_create() is done with the thread. A task of a
+    // higher priority than its creator runs inside xTaskCreate(); one that
+    // ended there - a module run detached ends with Dmod_Exit(), which kills
+    // its thread and clears thread->handle - would make the creator see a
+    // failed creation, free the thread and report NULL, and its caller would
+    // then free what the thread had already freed (the spawn arguments).
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
     // Store the thread structure in task-local storage so it can be
     // retrieved by dmosi_thread_current()
     if (thread != NULL) {
@@ -250,6 +258,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
         vPortFree(thread);
         return NULL;
     }
+    TaskHandle_t handle = thread->handle;
 
     // Register the TLS association immediately, from the creating task, instead of
     // relying solely on the new task to self-register the first time it runs (see
@@ -280,6 +289,13 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
         // it was also allocated via pvPortMalloc() before TLS was set, same as the stack.
         Dmod_RetagEx(thread->handle, stackModuleName);
     }
+
+    // Let it run (thread_wrapper waits for this) - unless it was killed meanwhile
+    taskENTER_CRITICAL();
+    if (thread->handle == handle) {
+        xTaskNotifyGive(handle);
+    }
+    taskEXIT_CRITICAL();
 
     return (dmosi_thread_t)thread;
 }

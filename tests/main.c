@@ -468,6 +468,19 @@ static void test_thread( void )
     TEST_ASSERT(dmosi_thread_kill(self_killed,0)==0,"Repeated kill after self-termination");
     dmosi_thread_destroy(self_killed);
 
+    /* A thread of a higher priority than its creator runs inside xTaskCreate().
+     * One that ends at once (as a module run detached does: Dmod_Exit() kills
+     * it) must not make dmosi_thread_create() report a failure - its caller
+     * would free what the thread already freed. */
+    dmosi_thread_t eager = dmosi_thread_create(
+        self_kill_entry, NULL, configMAX_PRIORITIES - 1, 4096, "eager", NULL );
+    TEST_ASSERT( eager != NULL, "Create a higher priority thread that ends at once" );
+    if( eager != NULL )
+    {
+        TEST_ASSERT( dmosi_thread_join( eager ) == 0, "Join the higher priority thread" );
+        dmosi_thread_destroy( eager );
+    }
+
     /* Get all threads count */
     size_t count = dmosi_thread_get_all( NULL, 0 );
     TEST_ASSERT( count >= 1, "thread_get_all count >= 1" );
