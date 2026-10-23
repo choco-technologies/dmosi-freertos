@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <limits.h>
+#include <time.h>
 #include "dmod.h"
 #include "dmod_sal.h"
 #include "dmosi.h"
@@ -144,6 +145,21 @@ static void test_semaphore( void )
     /* Wait with short timeout should succeed */
     TEST_ASSERT( dmosi_semaphore_wait( s, 1, 100 ) == 0,
                  "Wait on semaphore with timeout=100ms succeeds" );
+
+    /* Positive millisecond timeouts must not become a nonblocking probe or
+     * expire at the next tick before the requested interval has elapsed. */
+    const int32_t timeouts[] = { 1, 10, 15, 25 };
+    for (size_t i = 0; i < sizeof(timeouts) / sizeof(timeouts[0]); i++) {
+        struct timespec start, end;
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        int result = dmosi_semaphore_wait(s, 1, timeouts[i]);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        int64_t elapsed_ns = (int64_t)(end.tv_sec - start.tv_sec) * 1000000000LL
+                           + end.tv_nsec - start.tv_nsec;
+        TEST_ASSERT(result == -ETIMEDOUT, "Positive semaphore wait reports timeout");
+        TEST_ASSERT(elapsed_ns >= (int64_t)timeouts[i] * 1000000LL,
+                    "Semaphore timeout does not expire before the requested milliseconds");
+    }
 
     /* Fill to max and verify overflow */
     for( int i = 0; i < 5; i++ )
@@ -310,6 +326,48 @@ static void test_timer( void )
  * Thread tests
  * ========================================================================= */
 static volatile bool g_thread_ran = false;
+
+/* Wake an exiting task immediately after the FreeRTOS snapshot. It must not
+ * run while enumeration is still dereferencing the snapshot's TCB/TLS data. */
+static TaskHandle_t g_snapshot_reaper;
+static bool g_snapshot_armed;
+static volatile bool g_snapshot_active;
+static volatile bool g_reaped_during_snapshot;
+static UBaseType_t g_snapshot_reads;
+
+UBaseType_t __real_uxTaskGetSystemState(TaskStatus_t*, UBaseType_t,
+                                       configRUN_TIME_COUNTER_TYPE*);
+void* __real_pvTaskGetThreadLocalStoragePointer(TaskHandle_t, BaseType_t);
+
+UBaseType_t __wrap_uxTaskGetSystemState(TaskStatus_t* tasks, UBaseType_t size,
+                                       configRUN_TIME_COUNTER_TYPE* runtime)
+{
+    UBaseType_t count = __real_uxTaskGetSystemState(tasks, size, runtime);
+    if (g_snapshot_armed) {
+        g_snapshot_armed = false;
+        g_snapshot_reads = count;
+        g_snapshot_active = count != 0;
+        xTaskNotifyGive(g_snapshot_reaper);
+    }
+    return count;
+}
+
+void* __wrap_pvTaskGetThreadLocalStoragePointer(TaskHandle_t task, BaseType_t index)
+{
+    void* result = __real_pvTaskGetThreadLocalStoragePointer(task, index);
+    if (g_snapshot_active && --g_snapshot_reads == 0) {
+        g_snapshot_active = false;
+    }
+    return result;
+}
+
+static void snapshot_reaper_entry(void* arg)
+{
+    (void)arg;
+    g_snapshot_reaper = xTaskGetCurrentTaskHandle();
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    g_reaped_during_snapshot = g_snapshot_active;
+}
 
 static void simple_thread_entry( void * arg )
 {
@@ -488,6 +546,26 @@ static void test_thread( void )
     /* Get threads by process */
     size_t proc_count = dmosi_thread_get_by_process( proc, NULL, 0 );
     TEST_ASSERT( proc_count >= 1, "thread_get_by_process count >= 1" );
+
+    for (unsigned mode = 0; mode < 3; mode++) {
+        g_snapshot_reaper = NULL;
+        g_reaped_during_snapshot = false;
+        dmosi_thread_t reaper = dmosi_thread_create(snapshot_reaper_entry, NULL,
+            configMAX_PRIORITIES - 1, 4096, "snapshot_exit", NULL);
+        TEST_ASSERT(reaper != NULL && g_snapshot_reaper != NULL,
+                    "Create a task that exits during enumeration");
+        if (reaper == NULL || g_snapshot_reaper == NULL) continue;
+        dmosi_thread_t snapshot[32];
+        g_snapshot_armed = true;
+        size_t found = mode == 0 ? dmosi_thread_get_all(NULL, 0) :
+            mode == 1 ? dmosi_thread_get_all(snapshot, 32) :
+                        dmosi_thread_get_by_process(proc, snapshot, 32);
+        TEST_ASSERT(found > 0, "Enumeration returns threads while an exit is pending");
+        TEST_ASSERT(dmosi_thread_join(reaper) == 0, "Pending exit runs after enumeration");
+        TEST_ASSERT(!g_reaped_during_snapshot,
+                    "Task exit cannot invalidate TCBs while the snapshot is being read");
+        dmosi_thread_destroy(reaper);
+    }
 
     /* Thread info for the current thread */
     dmosi_thread_info_t info;

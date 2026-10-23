@@ -27,3 +27,9 @@ target_link_options(${PROJECT_NAME} PRIVATE -T ${CMAKE_CURRENT_SOURCE_DIR}/main.
 
 # Register test with CTest
 add_test(NAME dmosi_freertos_tests COMMAND ${PROJECT_NAME})
+
+# Inject a task exit between snapshot creation and TLS reads in the regression test.
+target_link_options(${PROJECT_NAME} PRIVATE
+    -Wl,--wrap=uxTaskGetSystemState
+    -Wl,--wrap=pvTaskGetThreadLocalStoragePointer
+)

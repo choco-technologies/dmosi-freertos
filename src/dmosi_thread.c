@@ -664,6 +664,10 @@ static size_t thread_enumerate(dmosi_process_t process, dmosi_thread_t* threads,
         return 0;
     }
 
+    // uxTaskGetSystemState resumes the scheduler before returning. Keep it
+    // suspended until all TCB/TLS reads are complete: otherwise a task may
+    // exit and the idle task can free/reuse a handle from the snapshot.
+    vTaskSuspendAll();
     UBaseType_t filled = uxTaskGetSystemState(task_array, alloc_count, NULL);
     size_t count = 0;
 
@@ -682,6 +686,7 @@ static size_t thread_enumerate(dmosi_process_t process, dmosi_thread_t* threads,
         count++;
     }
 
+    xTaskResumeAll();
     vPortFree(task_array);
 
     // When writing to the array, cap the return value at the number of handles written.
