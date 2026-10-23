@@ -104,8 +104,13 @@ DMOD_INPUT_API_DECLARATION( dmosi, 2.0, int, _semaphore_wait, (dmosi_semaphore_t
         // No wait
         ticks = 0;
     } else {
-        // Convert milliseconds to ticks
-        ticks = pdMS_TO_TICKS(timeout_ms);
+        // Round up and include the partial tick in progress. A one-tick wait
+        // can otherwise expire almost immediately; sub-tick timeouts become
+        // nonblocking probes. Use wide arithmetic and keep finite waits below
+        // portMAX_DELAY, which FreeRTOS reserves for an indefinite wait.
+        uint64_t requested = ((uint64_t)timeout_ms * configTICK_RATE_HZ + 999u) / 1000u + 1u;
+        ticks = requested < (uint64_t)portMAX_DELAY
+              ? (TickType_t)requested : portMAX_DELAY - 1u;
     }
 
     for (uint32_t i = 0; i < count; i++) {
