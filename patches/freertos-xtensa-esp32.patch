@@ -98,6 +98,36 @@ index 2f3fe55e0..586bcd5f3 100644
  
      #if ( ESP_IDF_VERSION < ESP_IDF_VERSION_VAL( 4, 2, 0 ) )
  
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h
+index a9069d798..e58fea328 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h
+@@ -28,4 +28,9 @@
+  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  */
+-#include <xtensa/xtensa_api.h>
++/* ESP-IDF >= 5.2 has the header in the include directory of the component xtensa, the name <xtensa/xtensa_api.h> is deprecated */
++#if __has_include_next( <xtensa_api.h> )
++    #include_next <xtensa_api.h>
++#else
++    #include <xtensa/xtensa_api.h>
++#endif
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h
+index 56e6bf5c7..d22eb00f7 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h
+@@ -28,4 +28,9 @@
+  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  */
+-#include <xtensa/xtensa_context.h>
++/* ESP-IDF >= 5.2 has the header in the include directory of the component xtensa, the name <xtensa/xtensa_context.h> is deprecated */
++#if __has_include_next( <xtensa_context.h> )
++    #include_next <xtensa_context.h>
++#else
++    #include <xtensa/xtensa_context.h>
++#endif
 diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
 index 767e95052..1e6dbce84 100644
 --- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
