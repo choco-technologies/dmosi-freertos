@@ -48,7 +48,10 @@
  * include path when DMOSI_ARCH and DMOSI_ARCH_FAMILY are set in CMake.
  * If no arch directory is configured, config/FreeRTOSConfigArch.h is used. */
 #include "FreeRTOSConfigArch.h"
+/* (the assembly of a port - the Xtensa one - includes this file too: dmod_sal.h is C) */
+#ifndef __ASSEMBLER__
 #include "dmod_sal.h"
+#endif
 
 /******************************************************************************/
 /* Hardware description related definitions. **********************************/
@@ -130,7 +133,9 @@
  * (in words, not in bytes!).  The kernel does not use this constant for any
  * other purpose.  Demo applications use the constant to make the demos somewhat
  * portable across hardware architectures. */
-#define configMINIMAL_STACK_SIZE                   128
+#ifndef configMINIMAL_STACK_SIZE
+    #define configMINIMAL_STACK_SIZE               128
+#endif
 
 /* configMAX_TASK_NAME_LEN sets the maximum length (in characters) of a task's
  * human readable name.  Includes the NULL terminator. */
@@ -303,7 +308,9 @@
  * memory in the build.  Set to 0 to exclude the ability to create statically
  * allocated objects from the build.  Defaults to 0 if left undefined.  See
  * https://www.freertos.org/Static_Vs_Dynamic_Memory_Allocation.html. */
-#define configSUPPORT_STATIC_ALLOCATION              1
+#ifndef configSUPPORT_STATIC_ALLOCATION
+    #define configSUPPORT_STATIC_ALLOCATION          1
+#endif
 
 /* Set configSUPPORT_DYNAMIC_ALLOCATION to 1 to include FreeRTOS API functions
  * that create FreeRTOS objects (tasks, queues, etc.) using dynamically
