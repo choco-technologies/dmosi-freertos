@@ -30,6 +30,7 @@ void vPortFree(void* ptr)
     Dmod_Free(ptr);
 }
 
+#ifndef DMOSI_PORT_HAS_HEAP_STATS
 /**
  * @brief Get the current free heap size
  * 
@@ -53,6 +54,7 @@ size_t xPortGetMinimumEverFreeHeapSize(void)
 {
     return 0;
 }
+#endif /* DMOSI_PORT_HAS_HEAP_STATS */
 
 /**
  * @brief Initialize memory blocks (not needed for custom allocator)

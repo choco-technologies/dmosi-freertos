@@ -1,0 +1,126 @@
+diff --git a/portable/CMakeLists.txt b/portable/CMakeLists.txt
+index 9b891f031..75b82278c 100644
+--- a/portable/CMakeLists.txt
++++ b/portable/CMakeLists.txt
+@@ -403,8 +403,6 @@ add_library(freertos_kernel_port OBJECT
+         ThirdParty/GCC/Xtensa_ESP32/portasm.S
+         ThirdParty/GCC/Xtensa_ESP32/xtensa_context.S
+         ThirdParty/GCC/Xtensa_ESP32/xtensa_init.c
+-        ThirdParty/GCC/Xtensa_ESP32/xtensa_intr_asm.S
+-        ThirdParty/GCC/Xtensa_ESP32/xtensa_intr.c
+         ThirdParty/GCC/Xtensa_ESP32/xtensa_loadstore_handler.S
+         ThirdParty/GCC/Xtensa_ESP32/xtensa_overlay_os_hook.c
+         ThirdParty/GCC/Xtensa_ESP32/xtensa_vector_defaults.S
+@@ -933,6 +931,14 @@ endif()
+ 
+ add_library(freertos_kernel_port_headers INTERFACE)
+ 
++# Xtensa ESP32 FreeRTOS assembly sources require C preprocessor mode
++# so headers are parsed correctly under __ASSEMBLER__.
++set_source_files_properties(
++    ThirdParty/GCC/Xtensa_ESP32/portasm.S
++    ThirdParty/GCC/Xtensa_ESP32/xtensa_context.S
++    PROPERTIES COMPILE_FLAGS "-x assembler-with-cpp -D__ASSEMBLER__"
++)
++
+ target_include_directories(freertos_kernel_port_headers INTERFACE
+     # TEMPLATE Port
+     $<$<STREQUAL:${FREERTOS_PORT},TEMPLATE>:${CMAKE_CURRENT_LIST_DIR}/template>
+@@ -1292,7 +1298,7 @@ endif()
+ target_link_libraries(freertos_kernel_port
+     PUBLIC
+         $<$<STREQUAL:${FREERTOS_PORT},GCC_RP2040>:pico_base_headers>
+-        $<$<STREQUAL:${FREERTOS_PORT},GCC_XTENSA_ESP32>:idf::esp32>
++        $<$<AND:$<STREQUAL:${FREERTOS_PORT},GCC_XTENSA_ESP32>,$<TARGET_EXISTS:idf::esp32>>:idf::esp32>
+         freertos_kernel_port_headers
+     PRIVATE
+         freertos_kernel_include
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/portmacro.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/portmacro.h
+index 2f3fe55e0..586bcd5f3 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/portmacro.h
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/include/portmacro.h
+@@ -106,6 +106,14 @@
+  *-----------------------------------------------------------
+  */
+ 
++    #ifndef PRIVILEGED_FUNCTION
++        #define PRIVILEGED_FUNCTION
++    #endif
++
++    #ifndef PRIVILEGED_DATA
++        #define PRIVILEGED_DATA
++    #endif
++
+ /* Type definitions. */
+ 
+     #define portCHAR          int8_t
+@@ -428,12 +436,14 @@
+     } xMPU_SETTINGS;
+ 
+ /* Main hack to use MPU_wrappers even when no MPU is defined (warning: mpu_setting should not be accessed; otherwise move this above xMPU_SETTINGS) */
+-    #if ( XCHAL_CP_NUM > 0 || configUSE_TRACE_FACILITY_2 ) && !portUSING_MPU_WRAPPERS /* If MPU wrappers not used, we still need to allocate coproc area */
+-        #undef portUSING_MPU_WRAPPERS
+-        #define portUSING_MPU_WRAPPERS    1                                           /* Enable it to allocate coproc area */
+-        #define MPU_WRAPPERS_H                                                        /* Override mpu_wrapper.h to disable unwanted code */
+-        #define PRIVILEGED_FUNCTION
+-        #define PRIVILEGED_DATA
++    #if 0
++        #if ( XCHAL_CP_NUM > 0 || configUSE_TRACE_FACILITY_2 ) && !portUSING_MPU_WRAPPERS /* If MPU wrappers not used, we still need to allocate coproc area */
++            #undef portUSING_MPU_WRAPPERS
++            #define portUSING_MPU_WRAPPERS    1                                           /* Enable it to allocate coproc area */
++            #define MPU_WRAPPERS_H                                                        /* Override mpu_wrapper.h to disable unwanted code */
++            #define PRIVILEGED_FUNCTION
++            #define PRIVILEGED_DATA
++        #endif
+     #endif
+ 
+     void vApplicationSleep( TickType_t xExpectedIdleTime );
+@@ -475,10 +485,18 @@
+  * non-FreeRTOS-specific code, and behave the same as
+  * pvPortMalloc()/vPortFree().
+  */
+-    #define pvPortMalloc                       heap_caps_malloc_default
+-    #define vPortFree                          heap_caps_free
+-    #define xPortGetFreeHeapSize               esp_get_free_heap_size
+-    #define xPortGetMinimumEverFreeHeapSize    esp_get_minimum_free_heap_size
++    #define pvPortMalloc    heap_caps_malloc_default
++    #define vPortFree       heap_caps_free
++
++    static inline size_t xPortGetFreeHeapSize( void )
++    {
++        return ( size_t ) esp_get_free_heap_size();
++    }
++
++    static inline size_t xPortGetMinimumEverFreeHeapSize( void )
++    {
++        return ( size_t ) esp_get_minimum_free_heap_size();
++    }
+ 
+     #if ( ESP_IDF_VERSION < ESP_IDF_VERSION_VAL( 4, 2, 0 ) )
+ 
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
+index 767e95052..1e6dbce84 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
+@@ -66,6 +66,7 @@
+  * Include any RTOS specific definitions that are needed by this header.
+  */
+ #include    "FreeRTOSConfig.h"
++#include    "FreeRTOSConfig_arch.h"
+ 
+ /*
+  * Convert FreeRTOSConfig definitions to XTENSA definitions.
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/port.c b/portable/ThirdParty/GCC/Xtensa_ESP32/port.c
+index a89868baa..7c8b60f1e 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/port.c
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/port.c
+@@ -129,7 +129,8 @@ void _xt_user_exit( void );
+     StackType_t * pxPortInitialiseStack( StackType_t * pxTopOfStack,
+                                          TaskFunction_t pxCode,
+                                          void * pvParameters,
+-                                         BaseType_t xRunPrivileged )
++                                         BaseType_t xRunPrivileged,
++                                         xMPU_SETTINGS * xMPUSettings ) /* (the kernel since V11 passes the settings too) */
+ #else
+     StackType_t * pxPortInitialiseStack( StackType_t * pxTopOfStack,
+                                          TaskFunction_t pxCode,
