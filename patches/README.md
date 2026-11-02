@@ -12,8 +12,9 @@ not ours to push to); apply them on a fresh checkout of it:
   The `include/xtensa_context.h` and `include/xtensa_api.h` of the port only forwarded to `<xtensa/xtensa_context.h>` /
   `<xtensa/xtensa_api.h>`, which ESP-IDF >= 5.2 keeps in a `deprecated_include` directory that is not on the include path: they
   forward to `<xtensa_context.h>` / `<xtensa_api.h>` of the component xtensa (`#include_next`) when there are such headers. The
-  other headers that ESP-IDF 5.2 removed or renamed (`soc/cpu.h`, `soc/spinlock.h`, `soc/compare_set.h`, `ESP_WATCHPOINT_STORE`)
-  are covered by dmod-boot (`src/arch/xtensa/lx7/shim`), not here.
+  other headers that ESP-IDF 5.2 removed or renamed (`soc/cpu.h`, `soc/spinlock.h`, `soc/compare_set.h`, `hal/cpu_hal.h`,
+  `ESP_WATCHPOINT_STORE`) are covered by `config/arch/xtensa_esp32/` (it is on the include path of the port, before the headers
+  of ESP-IDF; each of those headers includes the original one when the ESP-IDF has it, so an older ESP-IDF still works).
   `xtensa_loadstore_handler.S` (the emulation of the 8/16-bit loads and stores that the bus does not do, from ESP-IDF): the
   range of the addresses it accepts is the IRAM and the flash seen by the instruction bus (`SOC_IROM_LOW`..`SOC_IROM_HIGH`),
   where a 32-bit read stands in for the 8/16-bit one - without it, code that reads the bytes of an address of a function (a
