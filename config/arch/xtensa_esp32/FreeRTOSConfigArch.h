@@ -35,6 +35,26 @@
 #define configSUPPORT_STATIC_ALLOCATION             0
 #define configKERNEL_PROVIDED_STATIC_MEMORY         0
 
+/* The check of the stack overflow of the kernel (stack_macros.h) is compiled out when portUSING_MPU_WRAPPERS is 1, as above, so the
+ * overflow went unnoticed: it ran over the neighbour block of the heap. The same check as the kernel's for a stack that grows down
+ * (configCHECK_FOR_STACK_OVERFLOW 2: the saved stack pointer within the limit, the pattern at the end of the stack untouched). */
+#define taskCHECK_FOR_STACK_OVERFLOW()                                                       \
+    do                                                                                       \
+    {                                                                                        \
+        const uint32_t * const pulStack = ( uint32_t * ) pxCurrentTCB->pxStack;              \
+        const uint32_t ulCheckValue = ( uint32_t ) 0xa5a5a5a5U;                              \
+                                                                                             \
+        if( ( pxCurrentTCB->pxTopOfStack <= pxCurrentTCB->pxStack ) ||                       \
+            ( pulStack[ 0 ] != ulCheckValue ) ||                                             \
+            ( pulStack[ 1 ] != ulCheckValue ) ||                                             \
+            ( pulStack[ 2 ] != ulCheckValue ) ||                                             \
+            ( pulStack[ 3 ] != ulCheckValue ) )                                              \
+        {                                                                                    \
+            char * pcOverflowTaskName = pxCurrentTCB->pcTaskName;                            \
+            vApplicationStackOverflowHook( ( TaskHandle_t ) pxCurrentTCB, pcOverflowTaskName ); \
+        }                                                                                    \
+    } while( 0 )
+
 #include "FreeRTOSConfig_arch.h"
 
 /* The stack of this port is counted in BYTES (StackType_t is uint8_t), not in words. The frame that the port builds on the stack
