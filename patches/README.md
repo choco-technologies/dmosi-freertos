@@ -14,3 +14,9 @@ not ours to push to); apply them on a fresh checkout of it:
   forward to `<xtensa_context.h>` / `<xtensa_api.h>` of the component xtensa (`#include_next`) when there are such headers. The
   other headers that ESP-IDF 5.2 removed or renamed (`soc/cpu.h`, `soc/spinlock.h`, `soc/compare_set.h`, `ESP_WATCHPOINT_STORE`)
   are covered by dmod-boot (`src/arch/xtensa/lx7/shim`), not here.
+  `xtensa_loadstore_handler.S` (the emulation of the 8/16-bit loads and stores that the bus does not do, from ESP-IDF): the
+  range of the addresses it accepts is the IRAM and the flash seen by the instruction bus (`SOC_IROM_LOW`..`SOC_IROM_HIGH`),
+  where a 32-bit read stands in for the 8/16-bit one - without it, code that reads the bytes of an address of a function (a
+  signature check on a pointer that may be a function) faults; the constants of the ESP32's APP cache (not on the ESP32-S3) are
+  gone. The handler is built in with `CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY` and needs the symbol `_iram_text_end` (the end
+  of the IRAM code); dmod-boot sets both (`src/arch/xtensa/lx7/shim/sdkconfig.h`, `configs/mcu/esp32s3/*/sections.ld`).
