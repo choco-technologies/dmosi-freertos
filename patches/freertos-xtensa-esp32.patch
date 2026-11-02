@@ -98,6 +98,36 @@ index 2f3fe55e0..586bcd5f3 100644
  
      #if ( ESP_IDF_VERSION < ESP_IDF_VERSION_VAL( 4, 2, 0 ) )
  
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h
+index a9069d798..e58fea328 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_api.h
+@@ -28,4 +28,9 @@
+  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  */
+-#include <xtensa/xtensa_api.h>
++/* ESP-IDF >= 5.2 has the header in the include directory of the component xtensa, the name <xtensa/xtensa_api.h> is deprecated */
++#if __has_include_next( <xtensa_api.h> )
++    #include_next <xtensa_api.h>
++#else
++    #include <xtensa/xtensa_api.h>
++#endif
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h
+index 56e6bf5c7..d22eb00f7 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_context.h
+@@ -28,4 +28,9 @@
+  * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+  */
+-#include <xtensa/xtensa_context.h>
++/* ESP-IDF >= 5.2 has the header in the include directory of the component xtensa, the name <xtensa/xtensa_context.h> is deprecated */
++#if __has_include_next( <xtensa_context.h> )
++    #include_next <xtensa_context.h>
++#else
++    #include <xtensa/xtensa_context.h>
++#endif
 diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h b/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
 index 767e95052..1e6dbce84 100644
 --- a/portable/ThirdParty/GCC/Xtensa_ESP32/include/xtensa_rtos.h
@@ -124,3 +154,51 @@ index a89868baa..7c8b60f1e 100644
  #else
      StackType_t * pxPortInitialiseStack( StackType_t * pxTopOfStack,
                                           TaskFunction_t pxCode,
+diff --git a/portable/ThirdParty/GCC/Xtensa_ESP32/xtensa_loadstore_handler.S b/portable/ThirdParty/GCC/Xtensa_ESP32/xtensa_loadstore_handler.S
+index 4572eb684..fae57f6a4 100644
+--- a/portable/ThirdParty/GCC/Xtensa_ESP32/xtensa_loadstore_handler.S
++++ b/portable/ThirdParty/GCC/Xtensa_ESP32/xtensa_loadstore_handler.S
+@@ -78,14 +78,18 @@ LoadStoreErrorHandler:
+     rsr     a3, excvaddr
+     movi    a4, _iram_text_end                  // End of code section of IRAM
+     bge     a3, a4, 1f
+-    movi    a4, SOC_CACHE_APP_LOW               // Check if in APP cache region
++    movi    a4, SOC_IRAM_LOW                    // Below the code of the IRAM: the IRAM data starts here
+     blt     a3, a4, .LS_wrong_opcode
+-    movi    a4, SOC_CACHE_APP_HIGH
+-    bge     a3, a4, .LS_wrong_opcode
+     j       2f
+ 
+ 1:
+     movi    a4, SOC_IRAM_HIGH                   // End of IRAM address range
++    blt     a3, a4, 2f
++    /* The flash seen by the instruction bus (code of the firmware, read as data - e.g. the address of a function used as a
++       string): the bus does 32-bit reads only, the 8/16-bit ones are completed here with a 32-bit read */
++    movi    a4, SOC_IROM_LOW
++    blt     a3, a4, .LS_wrong_opcode
++    movi    a4, SOC_IROM_HIGH
+     bge     a3, a4, .LS_wrong_opcode
+ 
+ 2:
+@@ -272,14 +276,18 @@ AlignmentErrorHandler:
+     rsr     a3, excvaddr
+     movi    a4, _iram_text_end                  // End of code section of IRAM
+     bge     a3, a4, 1f
+-    movi    a4, SOC_CACHE_APP_LOW               // Check if in APP cache region
++    movi    a4, SOC_IRAM_LOW                    // Below the code of the IRAM: the IRAM data starts here
+     blt     a3, a4, .LS_wrong_opcode
+-    movi    a4, SOC_CACHE_APP_HIGH
+-    bge     a3, a4, .LS_wrong_opcode
+     j       2f
+ 
+ 1:
+     movi    a4, SOC_IRAM_HIGH                   // End of IRAM address range
++    blt     a3, a4, 2f
++    /* The flash seen by the instruction bus (code of the firmware, read as data - e.g. the address of a function used as a
++       string): the bus does 32-bit reads only, the 8/16-bit ones are completed here with a 32-bit read */
++    movi    a4, SOC_IROM_LOW
++    blt     a3, a4, .LS_wrong_opcode
++    movi    a4, SOC_IROM_HIGH
+     bge     a3, a4, .LS_wrong_opcode
+ 
+ 2:
