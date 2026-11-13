@@ -54,4 +54,19 @@
     #define configMAX_API_CALL_INTERRUPT_PRIORITY    configMAX_SYSCALL_INTERRUPT_PRIORITY
 #endif
 
+/* Move the stack guard of the architecture (dmosi_stack_guard_select, see dmosi.h) to the stack of the task that is
+ * about to run: an overflow then faults at once instead of being found, after the damage, by the check of the kernel.
+ * The first task of the scheduler is started without a context switch and runs unguarded until its first one.
+ * The guard takes room in the stack: dmosi_thread_create() adds DMOSI_STACK_GUARD_RESERVE to the stacks it allocates. */
+#ifndef __ASSEMBLER__
+#include "dmosi.h"
+/* pxEndOfStack is the last element of the buffer of a stack that grows down only when this is set */
+#define configRECORD_STACK_HIGH_ADDRESS    1
+#define traceTASK_SWITCHED_IN()                                                                                 \
+    dmosi_stack_guard_select( ( const void * ) pxCurrentTCB->pxStack,                                          \
+                              ( size_t ) ( ( pxCurrentTCB->pxEndOfStack - pxCurrentTCB->pxStack + 1 ) * sizeof( StackType_t ) ) )
+/* Worst case: the guard itself, and what is lost aligning it to its size; the kernel's own pattern before it */
+#define DMOSI_STACK_GUARD_RESERVE          ( 2 * DMOSI_STACK_GUARD_SIZE + 32 )
+#endif
+
 #endif /* FREERTOS_CONFIG_ARCH_H */

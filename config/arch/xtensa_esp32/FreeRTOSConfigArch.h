@@ -73,4 +73,20 @@
 /* The tick handler of the port (port_systick.c) passes the number of the interrupt to the trace macro of the IDF */
 #define traceISR_ENTER( ... )
 
+/* The guard of the stack of the thread that runs: the architecture is told the stack of every thread that is switched to
+ * (dmosi_stack_guard_select(): dmod-boot puts the data breakpoints of the core on the lowest part of it, and an overflow
+ * stops the thread the moment it writes there). The first task of the scheduler is started without a context switch and runs
+ * unguarded until its first one. The guard takes room in the stack: dmosi_thread_create() adds DMOSI_STACK_GUARD_RESERVE to the
+ * stacks it allocates. The stack is counted in bytes on this port. */
+#ifndef __ASSEMBLER__
+#include "dmosi.h"
+/* pxEndOfStack is the last element of the buffer of a stack that grows down only when this is set */
+#define configRECORD_STACK_HIGH_ADDRESS    1
+#define traceTASK_SWITCHED_IN()                                                                                 \
+    dmosi_stack_guard_select( ( const void * ) pxCurrentTCB->pxStack,                                          \
+                              ( size_t ) ( ( pxCurrentTCB->pxEndOfStack - pxCurrentTCB->pxStack + 1 ) * sizeof( StackType_t ) ) )
+/* The room to handle the overflow in below the guard, the guard (two data breakpoints), and what is lost aligning it: see STACK_GUARD_SLACK in fault.c */
+#define DMOSI_STACK_GUARD_RESERVE          768
+#endif
+
 #endif /* FREERTOS_CONFIG_ARCH_H */

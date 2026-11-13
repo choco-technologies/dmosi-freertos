@@ -10,6 +10,7 @@ FreeRTOS backend implementation of the [dmosi](https://github.com/choco-technolo
 - **Queue** – fixed-size message queues with blocking send/receive
 - **Software timers** – one-shot and periodic timers with user callbacks
 - **Heap** – custom `pvPortMalloc`/`vPortFree` that delegate to the dmod memory allocator for unified memory tracking
+- **Fault containment** – `dmosi_thread_fault()` decides whether a fault of the running thread (reported by the architecture's exception handler) can be contained to its process and where the thread continues; a stack overflow found by the kernel's check is handed to a supervisor thread (`fault`) that terminates the process. On Cortex-M the stack of every thread being switched to is passed to the architecture (`dmosi_stack_guard_select()`), and `dmosi_thread_create()` adds `DMOSI_STACK_GUARD_RESERVE` bytes to the stack for its guard
 
 ## Repository layout
 

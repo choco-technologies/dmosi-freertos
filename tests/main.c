@@ -689,6 +689,157 @@ static void test_is_started( void )
 }
 
 /* =========================================================================
+ * Fault tests
+ * ========================================================================= */
+
+/* Internal to dmosi-freertos (src/dmosi_freertos_internal.h): what the kernel's
+ * stack overflow hook calls. The hook itself is replaced by this test binary. */
+extern bool dmosi_thread_stack_overflowed( TaskHandle_t task );
+
+static volatile bool g_fault_contained = false;
+static volatile bool g_fault_recovery_valid = false;
+static volatile bool g_second_fault_contained = true;
+static volatile bool g_fault_entry_returned = false;
+static volatile TaskHandle_t g_overflow_task = NULL;
+
+static bool file_contains( const char * path, const char * text )
+{
+    char content[ 512 ] = { 0 };
+    FILE * file = fopen( path, "r" );
+
+    if( file == NULL )
+    {
+        return false;
+    }
+
+    size_t length = fread( content, 1, sizeof( content ) - 1, file );
+    content[ length ] = '\0';
+    fclose( file );
+    return strstr( content, text ) != NULL;
+}
+
+/* Does what the exception handler of an architecture does with a fault of the
+ * running thread - except for rewinding the stack, which a host cannot do. */
+static void faulting_thread_entry( void * arg )
+{
+    ( void ) arg;
+    dmosi_fault_t fault = {
+        .type = DMOSI_FAULT_MEMORY_ACCESS,
+        .pc = 0x1000,
+        .sp = 0, /* the stack of a POSIX port task is not the one the kernel allocated */
+        .address = 0xDEAD0000,
+        .has_address = true,
+    };
+    dmosi_fault_recovery_t recovery = { 0 };
+    dmosi_fault_recovery_t second = { 0 };
+
+    g_fault_contained = dmosi_thread_fault( &fault, &recovery );
+    g_fault_recovery_valid = ( recovery.entry != NULL ) && ( recovery.stack_top != NULL );
+    g_second_fault_contained = dmosi_thread_fault( &fault, &second );
+
+    if( g_fault_contained )
+    {
+        recovery.entry( recovery.arg );
+    }
+
+    g_fault_entry_returned = true;
+}
+
+static void overflowing_thread_entry( void * arg )
+{
+    ( void ) arg;
+    g_overflow_task = xTaskGetCurrentTaskHandle();
+
+    for( ; ; )
+    {
+        dmosi_thread_sleep( 1000 );
+    }
+}
+
+static void test_fault_of_running_thread( void )
+{
+    const char * stdout_path = "/tmp/dmosi_freertos_test_fault.log";
+    remove( stdout_path );
+
+    dmosi_process_t proc = dmosi_process_create( "crash_proc", "crash_module", NULL );
+    TEST_ASSERT( proc != NULL, "Create process for the fault test" );
+    TEST_ASSERT( dmosi_process_set_stream( proc, DMOSI_STREAM_STDOUT, stdout_path ) == 0,
+                 "Bind stdout of the process to a file" );
+
+    dmosi_thread_t thread = dmosi_thread_create( faulting_thread_entry, NULL, 1, 16384, "crash_t", proc );
+    TEST_ASSERT( thread != NULL, "Create the faulting thread" );
+
+    TEST_ASSERT( dmosi_process_wait( proc, 5000 ) == 0, "Process of the faulting thread terminates" );
+    TEST_ASSERT( g_fault_contained == true, "Fault of a thread of a process is contained" );
+    TEST_ASSERT( g_fault_recovery_valid == true, "Recovery has an entry and a stack top" );
+    TEST_ASSERT( g_second_fault_contained == false, "A second fault of the same thread is fatal" );
+    TEST_ASSERT( g_fault_entry_returned == false, "Recovery entry does not return" );
+    TEST_ASSERT( dmosi_process_get_exit_status( proc ) == DMOSI_FAULT_EXIT_STATUS,
+                 "Exit status of the process is DMOSI_FAULT_EXIT_STATUS" );
+
+    dmosi_thread_destroy( thread );
+    dmosi_process_destroy( proc );
+
+    TEST_ASSERT( file_contains( stdout_path, "crash_proc: invalid memory access in thread 'crash_t'" ),
+                 "Fault is reported on the stdout of the process" );
+    TEST_ASSERT( file_contains( stdout_path, "address=0xDEAD0000" ), "Report has the faulting address" );
+}
+
+static void test_stack_overflow_of_thread( void )
+{
+    const char * stdout_path = "/tmp/dmosi_freertos_test_overflow.log";
+    remove( stdout_path );
+
+    dmosi_process_t proc = dmosi_process_create( "overflow_proc", "overflow_module", NULL );
+    TEST_ASSERT( proc != NULL, "Create process for the stack overflow test" );
+    TEST_ASSERT( dmosi_process_set_stream( proc, DMOSI_STREAM_STDOUT, stdout_path ) == 0,
+                 "Bind stdout of the process to a file" );
+
+    g_overflow_task = NULL;
+    dmosi_thread_t thread = dmosi_thread_create( overflowing_thread_entry, NULL, 1, 16384, "overflow_t", proc );
+    TEST_ASSERT( thread != NULL, "Create the overflowing thread" );
+
+    while( g_overflow_task == NULL )
+    {
+        dmosi_thread_sleep( 10 );
+    }
+
+    TEST_ASSERT( dmosi_thread_stack_overflowed( g_overflow_task ) == true,
+                 "Stack overflow of a thread of a process is contained" );
+    TEST_ASSERT( dmosi_thread_stack_overflowed( g_overflow_task ) == true,
+                 "Overflow reported again for the same thread is still contained" );
+
+    TEST_ASSERT( dmosi_process_wait( proc, 5000 ) == 0, "Process of the overflowing thread terminates" );
+    TEST_ASSERT( dmosi_process_get_exit_status( proc ) == DMOSI_FAULT_EXIT_STATUS,
+                 "Exit status of the process is DMOSI_FAULT_EXIT_STATUS" );
+
+    dmosi_thread_destroy( thread );
+    dmosi_process_destroy( proc );
+
+    TEST_ASSERT( file_contains( stdout_path, "overflow_proc: stack overflow in thread 'overflow_t'" ),
+                 "Stack overflow is reported on the stdout of the process" );
+}
+
+static void test_fault( void )
+{
+    printf( "\n=== Testing fault ===\n" );
+
+    dmosi_fault_t fault = { .type = DMOSI_FAULT_MEMORY_ACCESS };
+    dmosi_fault_recovery_t recovery = { 0 };
+
+    TEST_ASSERT( dmosi_thread_fault( NULL, &recovery ) == false, "Fault without a description is fatal" );
+    TEST_ASSERT( dmosi_thread_fault( &fault, NULL ) == false, "Fault without a recovery is fatal" );
+
+    /* The test task was not created by dmosi: there is no process to contain its fault to */
+    TEST_ASSERT( dmosi_thread_fault( &fault, &recovery ) == false, "Fault of a thread dmosi did not create is fatal" );
+    TEST_ASSERT( dmosi_thread_stack_overflowed( xTaskGetCurrentTaskHandle() ) == false,
+                 "Stack overflow of a thread dmosi did not create is fatal" );
+
+    test_fault_of_running_thread();
+    test_stack_overflow_of_thread();
+}
+
+/* =========================================================================
  * Init / deinit tests
  * ========================================================================= */
 static void test_init_deinit( void )
@@ -722,6 +873,7 @@ static void test_task( void * pvParameters )
     test_queue();
     test_timer();
     test_thread();
+    test_fault();
     test_tick_count();
     test_rand();
     test_is_started();
