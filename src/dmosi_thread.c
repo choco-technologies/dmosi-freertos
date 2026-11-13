@@ -12,6 +12,9 @@
 #include "dmosi.h"
 #include "dmod.h"
 #include "FreeRTOS.h"
+#if defined(__XTENSA__)
+#include "xtensa_context.h"
+#endif
 #include "task.h"
 #include "queue.h"
 #include "dmosi_freertos_internal.h"
@@ -148,6 +151,26 @@ static struct dmosi_thread* thread_new(TaskHandle_t handle,
     return thread;
 }
 
+#if defined(__XTENSA__)
+/* The port of Xtensa keeps the state of the coprocessors and the thread local variables of a task at the very top of its
+ * stack (pxPortInitialiseStack): a thread that starts afresh must not use that, or the next context switch saves its
+ * registers over its frames. The linker symbols are the ones the port sizes the thread local area with. */
+extern int _thread_local_start, _thread_local_end;
+
+static uintptr_t arch_initial_stack_pointer(uintptr_t top)
+{
+    const uintptr_t thread_local_size = ((uintptr_t)&_thread_local_end - (uintptr_t)&_thread_local_start + 0xf) & ~(uintptr_t)0xf;
+
+    return ((top - XT_CP_SIZE - thread_local_size - XT_STK_FRMSZ) & ~(uintptr_t)0xf) + XT_STK_FRMSZ;
+}
+#else
+/* Everywhere else the first frame of a task is below the top of the stack, and the thread that starts afresh reuses it */
+static uintptr_t arch_initial_stack_pointer(uintptr_t top)
+{
+    return top;
+}
+#endif
+
 /**
  * @brief Record where the stack of a thread starts and ends
  *
@@ -166,8 +189,9 @@ static void thread_set_stack_bounds(struct dmosi_thread* thread, StackType_t* st
     }
 
     uintptr_t top = (uintptr_t)&stack_base[stack_depth - 1];
+    top &= ~(uintptr_t)portBYTE_ALIGNMENT_MASK;
     thread->stack_base = stack_base;
-    thread->stack_top = (void*)(top & ~(uintptr_t)portBYTE_ALIGNMENT_MASK);
+    thread->stack_top = (void*)arch_initial_stack_pointer(top);
 }
 
 /**
