@@ -13,6 +13,8 @@
 #include "dmod.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
+#include "dmosi_freertos_internal.h"
 #if DMOD_USE_PTHREAD && defined(__linux__)
 #include <pthread.h>
 #endif
@@ -37,6 +39,24 @@
  * re-entrant call detect "already being created" and return NULL instead.
  */
 #define DMOSI_THREAD_TLS_BOOTSTRAPPING    ((struct dmosi_thread*)1)
+
+/**
+ * @brief Stack size of the fault supervisor thread, in bytes
+ *
+ * The supervisor terminates a process on behalf of a thread that overflowed
+ * its stack: it prints the report through the process's standard output
+ * (file system, terminal and driver underneath) and runs the exit callbacks
+ * of the process and its threads. An architecture whose frames are larger
+ * overrides it in its FreeRTOSConfigArch.h.
+ */
+#ifndef DMOSI_FAULT_SUPERVISOR_STACK_SIZE
+#define DMOSI_FAULT_SUPERVISOR_STACK_SIZE    4096
+#endif
+
+/**
+ * @brief Number of stack overflows that can wait for the fault supervisor at once
+ */
+#define DMOSI_FAULT_SUPERVISOR_QUEUE_LENGTH    4
 
 /**
  * @brief Fallback process used during system initialization
@@ -80,6 +100,10 @@ struct dmosi_thread {
     TaskHandle_t joiner;              /**< Handle of task waiting to join */
     dmosi_process_t process;          /**< Process that the thread belongs to */
     size_t stack_size;                /**< Total stack size in bytes (0 if unknown) */
+    void* stack_base;                 /**< Lowest address of the stack (NULL if unknown) */
+    void* stack_top;                  /**< Initial stack pointer: the stack is empty there (NULL if unknown) */
+    bool faulted;                     /**< Whether the thread has faulted and is being terminated */
+    dmosi_fault_t fault;              /**< The fault, valid when faulted is set */
     struct dmosi_thread_exit_callback* exit_callbacks; /**< Registered exit callbacks (singly-linked) */
 };
 
@@ -113,9 +137,56 @@ static struct dmosi_thread* thread_new(TaskHandle_t handle,
     thread->joiner = NULL;
     thread->process = process;
     thread->stack_size = stack_size;
+    thread->stack_base = NULL;
+    thread->stack_top = NULL;
+    thread->faulted = false;
     thread->exit_callbacks = NULL;
 
     return thread;
+}
+
+/**
+ * @brief Record where the stack of a thread starts and ends
+ *
+ * The top is computed the way the kernel computes the initial stack pointer
+ * of a new task (prvInitialiseNewTask): the last element of the buffer,
+ * aligned down as the port requires.
+ *
+ * @param thread Thread the stack belongs to
+ * @param stack_base Buffer the kernel allocated for the stack
+ * @param stack_depth Size of the buffer, in StackType_t units
+ */
+static void thread_set_stack_bounds(struct dmosi_thread* thread, StackType_t* stack_base, UBaseType_t stack_depth)
+{
+    if (stack_base == NULL || stack_depth == 0) {
+        return;
+    }
+
+    uintptr_t top = (uintptr_t)&stack_base[stack_depth - 1];
+    thread->stack_base = stack_base;
+    thread->stack_top = (void*)(top & ~(uintptr_t)portBYTE_ALIGNMENT_MASK);
+}
+
+/**
+ * @brief Stop the memory of a thread that is ending from being owned by its module
+ *
+ * The stack and the control block of a thread are tagged with the name of its module (see
+ * dmosi_thread_create()), so that the module is charged for them. Unloading the module frees
+ * everything under its tag - and the exit callbacks of a thread, which is where the end of
+ * its process unloads the module, run on that very stack, before the kernel frees it.
+ * The kernel is the one to free them, so they go back to the system first.
+ *
+ * @param thread Thread that is ending
+ * @param handle Its task (not yet deleted)
+ */
+static void thread_release_memory_tags(struct dmosi_thread* thread, TaskHandle_t handle)
+{
+    if (thread->stack_base != NULL) {
+        Dmod_RetagEx(thread->stack_base, DMOSI_SYSTEM_MODULE_NAME);
+    }
+    if (handle != NULL) {
+        Dmod_RetagEx(handle, DMOSI_SYSTEM_MODULE_NAME);
+    }
 }
 
 /**
@@ -141,7 +212,7 @@ static void thread_invoke_exit_callbacks(struct dmosi_thread* thread)
     while (node != NULL) {
         struct dmosi_thread_exit_callback* next = node->next;
         node->callback((dmosi_thread_t)thread, node->arg);
-        vPortFree(node);
+        Dmod_Free(node);
         node = next;
     }
 }
@@ -181,6 +252,7 @@ static void thread_wrapper(void* pvParameters)
     // so a joiner that wakes up on completion never observes callbacks as
     // still pending.
     if (thread != NULL) {
+        thread_release_memory_tags(thread, xTaskGetCurrentTaskHandle());
         thread_invoke_exit_callbacks(thread);
     }
 
@@ -241,6 +313,12 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
         return NULL;
     }
 
+#ifdef DMOSI_STACK_GUARD_RESERVE
+    // The guard of the architecture lives in the stack buffer (see dmosi_stack_guard_select())
+    stack_size += DMOSI_STACK_GUARD_RESERVE;
+    thread->stack_size = stack_size;
+#endif
+
     // FreeRTOS stack size is in words, not bytes
     // Convert bytes to words (rounding up to ensure sufficient stack)
     UBaseType_t stack_words = (stack_size + sizeof(StackType_t) - 1) / sizeof(StackType_t);
@@ -277,10 +355,12 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_t, _thread_create, (dmosi_t
     // parent's own name (wrong owner) or NULL (untagged) depending on timing. Now that
     // thread->process is set, retag the stack directly under its own module name instead
     // of leaving it stuck under someone else's name or none at all.
+    TaskStatus_t taskStatus;
+    vTaskGetInfo(thread->handle, &taskStatus, pdFALSE, eInvalid);
+    thread_set_stack_bounds(thread, taskStatus.pxStackBase, stack_words);
+
     const char* stackModuleName = dmosi_thread_get_module_name((dmosi_thread_t)thread);
     if (stackModuleName != NULL) {
-        TaskStatus_t taskStatus;
-        vTaskGetInfo(thread->handle, &taskStatus, pdFALSE, eInvalid);
         if (taskStatus.pxStackBase != NULL) {
             Dmod_RetagEx(taskStatus.pxStackBase, stackModuleName);
         }
@@ -619,6 +699,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_kill, (dmosi_thread_t threa
     taskEXIT_CRITICAL();
 
     if (handle != current) vTaskSuspend(handle);
+    thread_release_memory_tags(thread, handle);
     thread_invoke_exit_callbacks(thread);
     taskENTER_CRITICAL();
     thread->completed = true;
@@ -631,6 +712,229 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_kill, (dmosi_thread_t threa
     vTaskDelete(handle == current ? NULL : handle);
 
     return 0;
+}
+
+//==============================================================================
+//                              FAULT API Implementation
+//==============================================================================
+
+/**
+ * @brief Get the dmosi thread a task is registered as, if any
+ *
+ * Reads the task's TLS slot only, so it is safe in interrupt context.
+ *
+ * @param task Task handle
+ * @return Thread structure of the task, NULL if it has none
+ */
+static struct dmosi_thread* thread_of_task(TaskHandle_t task)
+{
+    if (task == NULL) {
+        return NULL;
+    }
+
+    struct dmosi_thread* thread = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(task, DMOD_THREAD_TLS_INDEX);
+    return (thread == DMOSI_THREAD_TLS_BOOTSTRAPPING) ? NULL : thread;
+}
+
+/**
+ * @brief Decide whether a fault of a thread can be contained, and record it if so
+ *
+ * Runs with the thread unable to make progress (in the exception that
+ * interrupted it, or in the context switch that takes it off the CPU), so
+ * nothing here may block or allocate.
+ *
+ * @param thread Thread that faulted (may be NULL)
+ * @param fault Description of the fault
+ * @return bool true if the thread is now marked as faulted and its process
+ *         can be terminated on its own, false if the fault is fatal
+ */
+static bool thread_fault_begin(struct dmosi_thread* thread, const dmosi_fault_t* fault)
+{
+    // Not a thread dmosi created (the idle or timer task, a task of a driver),
+    // or one that is already being killed
+    if (thread == NULL || thread->entry == NULL || thread->handle == NULL || thread->stack_top == NULL) {
+        return false;
+    }
+
+    // A second fault while the first one is handled: the handling itself is broken
+    if (thread->faulted) {
+        return false;
+    }
+
+    if (thread->process == NULL || dmosi_freertos_is_system_process(thread->process)) {
+        return false;
+    }
+
+    thread->faulted = true;
+    thread->fault = *fault;
+    thread->fault.thread = (dmosi_thread_t)thread;
+
+    // Whatever the CPU reported, a stack pointer below the stack is the cause, not the symptom
+    if (fault->sp != 0 && fault->sp <= (uintptr_t)thread->stack_base) {
+        thread->fault.type = DMOSI_FAULT_STACK_OVERFLOW;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Where a thread continues after a fault raised by the CPU
+ *
+ * Runs in the faulting thread itself, on its own stack rewound to the top:
+ * the frames of the code that faulted are gone. Terminating the process
+ * kills this thread too, so this function does not return.
+ *
+ * @param arg The faulting thread (struct dmosi_thread)
+ */
+static void thread_fault_entry(void* arg)
+{
+    struct dmosi_thread* thread = (struct dmosi_thread*)arg;
+
+    dmosi_process_fault(thread->process, &thread->fault);
+
+    // Only reached if the process could not be terminated: this thread still must not go on
+    dmosi_thread_kill((dmosi_thread_t)thread, DMOSI_FAULT_EXIT_STATUS);
+    for (;;) {
+        vTaskSuspend(NULL);
+    }
+}
+
+/**
+ * @brief Report that the thread interrupted by the current exception has faulted
+ *
+ * See dmosi_thread_fault() in dmosi.h. The scheduler state check also covers
+ * a thread that faulted with the scheduler suspended: kernel structures may
+ * then be half-updated, and the thread cannot be taken away from them.
+ *
+ * @param fault Description of the fault
+ * @param recovery Filled in when the fault is contained
+ * @return bool true if the fault is contained, false if it is fatal
+ */
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _thread_fault, (const dmosi_fault_t* fault, dmosi_fault_recovery_t* recovery) )
+{
+    if (fault == NULL || recovery == NULL) {
+        return false;
+    }
+
+    if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) {
+        return false;
+    }
+
+    struct dmosi_thread* thread = thread_of_task(xTaskGetCurrentTaskHandle());
+    if (!thread_fault_begin(thread, fault)) {
+        return false;
+    }
+
+    recovery->entry = thread_fault_entry;
+    recovery->arg = thread;
+    recovery->stack_top = thread->stack_top;
+    return true;
+}
+
+/**
+ * @brief Queue of threads whose stack overflowed, waiting for the fault supervisor
+ *
+ * Holds struct dmosi_thread pointers. Created by dmosi_thread_fault_supervisor_start().
+ */
+static QueueHandle_t g_overflowed_threads = NULL;
+
+/**
+ * @brief The fault supervisor thread, NULL when it is not running
+ */
+static dmosi_thread_t g_fault_supervisor = NULL;
+
+/**
+ * @brief Entry of the fault supervisor thread
+ *
+ * Terminates the processes of the threads the kernel caught overflowing
+ * their stack. The overflow is detected inside a context switch, where
+ * nothing can be printed or killed, and the overflowing thread cannot do it
+ * itself: it is not running, and there is no telling when it would again.
+ *
+ * @param arg Not used
+ */
+static void fault_supervisor_entry(void* arg)
+{
+    (void)arg;
+
+    for (;;) {
+        struct dmosi_thread* thread = NULL;
+        if (xQueueReceive(g_overflowed_threads, &thread, portMAX_DELAY) == pdTRUE && thread != NULL) {
+            dmosi_process_fault(thread->process, &thread->fault);
+        }
+    }
+}
+
+bool dmosi_thread_fault_supervisor_start(dmosi_process_t process)
+{
+    g_overflowed_threads = xQueueCreate(DMOSI_FAULT_SUPERVISOR_QUEUE_LENGTH, sizeof(struct dmosi_thread*));
+    if (g_overflowed_threads == NULL) {
+        return false;
+    }
+
+    g_fault_supervisor = dmosi_thread_create(fault_supervisor_entry, NULL, configMAX_PRIORITIES - 1,
+                                             DMOSI_FAULT_SUPERVISOR_STACK_SIZE, "fault", process);
+    if (g_fault_supervisor == NULL) {
+        vQueueDelete(g_overflowed_threads);
+        g_overflowed_threads = NULL;
+        return false;
+    }
+
+    return true;
+}
+
+void dmosi_thread_fault_supervisor_stop(void)
+{
+    if (g_fault_supervisor != NULL) {
+        dmosi_thread_destroy(g_fault_supervisor);
+        g_fault_supervisor = NULL;
+    }
+
+    if (g_overflowed_threads != NULL) {
+        vQueueDelete(g_overflowed_threads);
+        g_overflowed_threads = NULL;
+    }
+}
+
+/**
+ * @brief Handle a stack overflow the kernel detected in a task
+ *
+ * See dmosi_freertos_internal.h. Unlike a fault raised by the CPU, the
+ * overflowing thread is not executing here - it is being switched out - so
+ * it is not redirected anywhere: its process is terminated by the fault
+ * supervisor, which runs before the thread gets the CPU again because it
+ * has the highest priority and this very context switch can select it.
+ *
+ * @param task Task whose stack overflowed
+ * @return bool true if the overflow is contained, false if it is fatal
+ */
+bool dmosi_thread_stack_overflowed(TaskHandle_t task)
+{
+    struct dmosi_thread* thread = thread_of_task(task);
+
+    // The kernel checks the same damaged stack at every context switch until
+    // the task is deleted: once its process is being terminated, that is not news
+    if (thread != NULL && thread->faulted) {
+        return true;
+    }
+
+    if (g_overflowed_threads == NULL || thread == (struct dmosi_thread*)g_fault_supervisor) {
+        return false;
+    }
+
+    const dmosi_fault_t fault = { .type = DMOSI_FAULT_STACK_OVERFLOW };
+    if (!thread_fault_begin(thread, &fault)) {
+        return false;
+    }
+
+    // No yield request (the last argument): this already is a context switch,
+    // and it has not picked the next task yet
+    if (xQueueSendFromISR(g_overflowed_threads, &thread, NULL) != pdTRUE) {
+        thread->faulted = false;
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -859,8 +1163,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_exit_callback_handle_t, _th
         return NULL;
     }
 
+    // Not pvPortMalloc(): that charges the memory to the module of the calling thread, and the end of a
+    // thread is where the module of its process gets unloaded (see thread_release_memory_tags()), which
+    // frees everything under that name - this node, which is still in use at that point, included.
     struct dmosi_thread_exit_callback* node =
-        (struct dmosi_thread_exit_callback*)pvPortMalloc(sizeof(*node));
+        (struct dmosi_thread_exit_callback*)Dmod_MallocEx(sizeof(*node), DMOD_CURRENT_ALLOCATOR);
     if (node == NULL) {
         return NULL;
     }
@@ -876,7 +1183,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, dmosi_thread_exit_callback_handle_t, _th
     taskEXIT_CRITICAL();
 
     if (already_completed) {
-        vPortFree(node);
+        Dmod_Free(node);
         return NULL;
     }
 
@@ -914,7 +1221,7 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_unregister_exit_callback, (
         return -EINVAL;
     }
 
-    vPortFree(target);
+    Dmod_Free(target);
     return 0;
 }
 
