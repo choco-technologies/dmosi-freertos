@@ -43,14 +43,17 @@
 /**
  * @brief Stack size of the fault supervisor thread, in bytes
  *
- * The supervisor terminates a process on behalf of a thread that overflowed
- * its stack: it prints the report through the process's standard output
- * (file system, terminal and driver underneath) and runs the exit callbacks
- * of the process and its threads. An architecture whose frames are larger
- * overrides it in its FreeRTOSConfigArch.h.
+ * The supervisor terminates a process on behalf of a thread that faulted or
+ * overflowed its stack: it prints the report through the process's standard
+ * output (file system, terminal and driver underneath), runs the exit
+ * callbacks of the process and its threads and unloads its module. That is
+ * more than the stack of an application's thread is sized for (on a
+ * Cortex-M7 it overran the 3 KiB one of a process that had just crashed).
+ * An architecture whose frames are larger overrides it in its
+ * FreeRTOSConfigArch.h.
  */
 #ifndef DMOSI_FAULT_SUPERVISOR_STACK_SIZE
-#define DMOSI_FAULT_SUPERVISOR_STACK_SIZE    4096
+#define DMOSI_FAULT_SUPERVISOR_STACK_SIZE    8192
 #endif
 
 /**
@@ -778,11 +781,23 @@ static bool thread_fault_begin(struct dmosi_thread* thread, const dmosi_fault_t*
 }
 
 /**
+ * @brief Queue of threads that faulted, waiting for the fault supervisor
+ *
+ * Holds struct dmosi_thread pointers. Created by dmosi_thread_fault_supervisor_start().
+ */
+static QueueHandle_t g_overflowed_threads = NULL;
+
+/**
  * @brief Where a thread continues after a fault raised by the CPU
  *
  * Runs in the faulting thread itself, on its own stack rewound to the top:
- * the frames of the code that faulted are gone. Terminating the process
- * kills this thread too, so this function does not return.
+ * the frames of the code that faulted are gone. The stack is the one of the
+ * application, sized for what it does: reporting the fault and taking the
+ * process down (printing through the terminal and the driver underneath,
+ * the exit callbacks, unloading the module) is the system's work and needs
+ * more than a thread is given, so it is not done here. The thread only hands
+ * itself over to the fault supervisor, which does it on a stack of its own,
+ * and waits there to be terminated with the rest of its process.
  *
  * @param arg The faulting thread (struct dmosi_thread)
  */
@@ -790,10 +805,10 @@ static void thread_fault_entry(void* arg)
 {
     struct dmosi_thread* thread = (struct dmosi_thread*)arg;
 
-    dmosi_process_fault(thread->process, &thread->fault);
+    while (xQueueSend(g_overflowed_threads, &thread, portMAX_DELAY) != pdTRUE) {
+    }
 
-    // Only reached if the process could not be terminated: this thread still must not go on
-    dmosi_thread_kill((dmosi_thread_t)thread, DMOSI_FAULT_EXIT_STATUS);
+    // The supervisor terminates this thread; nothing it could still do is wanted
     for (;;) {
         vTaskSuspend(NULL);
     }
@@ -820,6 +835,11 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _thread_fault, (const dmosi_fault_
         return false;
     }
 
+    // Nobody to take the process down: the thread cannot do it with the stack it has
+    if (g_overflowed_threads == NULL) {
+        return false;
+    }
+
     struct dmosi_thread* thread = thread_of_task(xTaskGetCurrentTaskHandle());
     if (!thread_fault_begin(thread, fault)) {
         return false;
@@ -832,13 +852,6 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _thread_fault, (const dmosi_fault_
 }
 
 /**
- * @brief Queue of threads whose stack overflowed, waiting for the fault supervisor
- *
- * Holds struct dmosi_thread pointers. Created by dmosi_thread_fault_supervisor_start().
- */
-static QueueHandle_t g_overflowed_threads = NULL;
-
-/**
  * @brief The fault supervisor thread, NULL when it is not running
  */
 static dmosi_thread_t g_fault_supervisor = NULL;
@@ -846,10 +859,12 @@ static dmosi_thread_t g_fault_supervisor = NULL;
 /**
  * @brief Entry of the fault supervisor thread
  *
- * Terminates the processes of the threads the kernel caught overflowing
- * their stack. The overflow is detected inside a context switch, where
- * nothing can be printed or killed, and the overflowing thread cannot do it
- * itself: it is not running, and there is no telling when it would again.
+ * Terminates the processes of the threads that faulted: the ones the CPU
+ * stopped (they hand themselves over from their recovery entry) and the ones
+ * the kernel caught overflowing their stack. The latter is detected inside
+ * a context switch, where nothing can be printed or killed, and the thread
+ * is not running, and there is no telling when it would again. Neither can
+ * do it on the stack it has, so it is done here, on one made for it.
  *
  * @param arg Not used
  */
