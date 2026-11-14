@@ -747,4 +747,15 @@
 #define INCLUDE_xTaskGetHandle                 0
 #define INCLUDE_xTaskResumeFromISR             1
 
+/* The tasks that exist, for dmosi_thread_get_all() / dmosi_thread_get_by_process() / dmosi_process_find_by_id(): the kernel tells every
+ * creation and deletion of a task (in its critical section) and dmosi keeps the handles - see dmosi_thread.c. Enumerating them with
+ * uxTaskGetSystemState() instead computes the free stack of every task (a byte by byte scan of the stack, in the external RAM on
+ * some boards) and allocates, and that was done several times for every process that started or ended. */
+#ifndef __ASSEMBLER__
+void dmosi_task_registry_add( void* task );
+void dmosi_task_registry_remove( void* task );
+#endif
+#define traceTASK_CREATE( pxNewTCB )        dmosi_task_registry_add( ( void* ) ( pxNewTCB ) )
+#define traceTASK_DELETE( pxTaskToDelete )  dmosi_task_registry_remove( ( void* ) ( pxTaskToDelete ) )
+
 #endif /* FREERTOS_CONFIG_H */
