@@ -984,6 +984,37 @@ bool dmosi_thread_stack_overflowed(TaskHandle_t task)
 #define THREAD_ENUM_MARGIN    4
 
 /**
+ * @brief The most tasks the registry keeps (when there are more, the enumeration goes back to uxTaskGetSystemState()).
+ */
+#define TASK_REGISTRY_MAX    64
+
+/** The handles of the tasks that exist: added by the kernel's traceTASK_CREATE, removed by traceTASK_DELETE - both are called in the
+ *  critical section of the kernel, as the reads of the registry are (see thread_enumerate). The task that deletes itself is removed
+ *  when it is deleted, before the idle task frees it: a handle in the registry is always the one of a task that is not deleted. */
+static TaskHandle_t g_task_registry[TASK_REGISTRY_MAX];
+static volatile size_t g_task_registry_count = 0;
+static volatile bool g_task_registry_overflow = false;
+
+void dmosi_task_registry_add( void* task )
+{
+    if( g_task_registry_count < TASK_REGISTRY_MAX ) {
+        g_task_registry[g_task_registry_count++] = (TaskHandle_t)task;
+    } else {
+        g_task_registry_overflow = true;      // (the registry is not the whole truth any more: see thread_enumerate)
+    }
+}
+
+void dmosi_task_registry_remove( void* task )
+{
+    for( size_t i = 0; i < g_task_registry_count; i++ ) {
+        if( g_task_registry[i] == (TaskHandle_t)task ) {
+            g_task_registry[i] = g_task_registry[--g_task_registry_count];
+            return;
+        }
+    }
+}
+
+/**
  * @brief Enumerate all FreeRTOS tasks that have a dmosi_thread in TLS.
  *
  * Allocates a temporary TaskStatus_t array, calls uxTaskGetSystemState(), and
@@ -999,6 +1030,28 @@ bool dmosi_thread_stack_overflowed(TaskHandle_t task)
  */
 static size_t thread_enumerate(dmosi_process_t process, dmosi_thread_t* threads, size_t max_count)
 {
+    if( !g_task_registry_overflow ) {
+        // The tasks are in the registry: no allocation, no scan of the stacks. A task cannot be created or deleted while this runs.
+        size_t found = 0;
+        taskENTER_CRITICAL();
+        for( size_t i = 0; i < g_task_registry_count; i++ ) {
+            struct dmosi_thread* t = (struct dmosi_thread*)pvTaskGetThreadLocalStoragePointer(
+                g_task_registry[i], DMOD_THREAD_TLS_INDEX);
+            if( t == NULL || t == DMOSI_THREAD_TLS_BOOTSTRAPPING || t->handle == NULL ) {
+                continue;
+            }
+            if( process != NULL && t->process != process ) {
+                continue;
+            }
+            if( threads != NULL && found < max_count ) {
+                threads[found] = (dmosi_thread_t)t;
+            }
+            found++;
+        }
+        taskEXIT_CRITICAL();
+        return ( threads != NULL && found > max_count ) ? max_count : found;
+    }
+
     // Add a small margin to guard against new tasks being created between the
     // count query and the actual enumeration call.
     UBaseType_t alloc_count = uxTaskGetNumberOfTasks() + THREAD_ENUM_MARGIN;

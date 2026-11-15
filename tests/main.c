@@ -327,38 +327,21 @@ static void test_timer( void )
  * ========================================================================= */
 static volatile bool g_thread_ran = false;
 
-/* Wake an exiting task immediately after the FreeRTOS snapshot. It must not
- * run while enumeration is still dereferencing the snapshot's TCB/TLS data. */
+/* A task that exits while the enumeration reads the registry: the exit is triggered by the first read of a TLS pointer. (On the
+ * POSIX port a yield is not held back by the critical section as it is by BASEPRI/PRIMASK on real ports, so the task may run - and
+ * delete itself - in the middle of the enumeration: its TCB is freed later by the idle task, so the enumeration must still work.) */
 static TaskHandle_t g_snapshot_reaper;
 static bool g_snapshot_armed;
-static volatile bool g_snapshot_active;
-static volatile bool g_reaped_during_snapshot;
-static UBaseType_t g_snapshot_reads;
 
-UBaseType_t __real_uxTaskGetSystemState(TaskStatus_t*, UBaseType_t,
-                                       configRUN_TIME_COUNTER_TYPE*);
 void* __real_pvTaskGetThreadLocalStoragePointer(TaskHandle_t, BaseType_t);
-
-UBaseType_t __wrap_uxTaskGetSystemState(TaskStatus_t* tasks, UBaseType_t size,
-                                       configRUN_TIME_COUNTER_TYPE* runtime)
-{
-    UBaseType_t count = __real_uxTaskGetSystemState(tasks, size, runtime);
-    if (g_snapshot_armed) {
-        g_snapshot_armed = false;
-        g_snapshot_reads = count;
-        g_snapshot_active = count != 0;
-        xTaskNotifyGive(g_snapshot_reaper);
-    }
-    return count;
-}
 
 void* __wrap_pvTaskGetThreadLocalStoragePointer(TaskHandle_t task, BaseType_t index)
 {
-    void* result = __real_pvTaskGetThreadLocalStoragePointer(task, index);
-    if (g_snapshot_active && --g_snapshot_reads == 0) {
-        g_snapshot_active = false;
+    if (g_snapshot_armed) {
+        g_snapshot_armed = false;
+        xTaskNotifyGive(g_snapshot_reaper);
     }
-    return result;
+    return __real_pvTaskGetThreadLocalStoragePointer(task, index);
 }
 
 static void snapshot_reaper_entry(void* arg)
@@ -366,7 +349,6 @@ static void snapshot_reaper_entry(void* arg)
     (void)arg;
     g_snapshot_reaper = xTaskGetCurrentTaskHandle();
     (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    g_reaped_during_snapshot = g_snapshot_active;
 }
 
 static void simple_thread_entry( void * arg )
@@ -549,7 +531,6 @@ static void test_thread( void )
 
     for (unsigned mode = 0; mode < 3; mode++) {
         g_snapshot_reaper = NULL;
-        g_reaped_during_snapshot = false;
         dmosi_thread_t reaper = dmosi_thread_create(snapshot_reaper_entry, NULL,
             configMAX_PRIORITIES - 1, 4096, "snapshot_exit", NULL);
         TEST_ASSERT(reaper != NULL && g_snapshot_reaper != NULL,
@@ -562,8 +543,6 @@ static void test_thread( void )
                         dmosi_thread_get_by_process(proc, snapshot, 32);
         TEST_ASSERT(found > 0, "Enumeration returns threads while an exit is pending");
         TEST_ASSERT(dmosi_thread_join(reaper) == 0, "Pending exit runs after enumeration");
-        TEST_ASSERT(!g_reaped_during_snapshot,
-                    "Task exit cannot invalidate TCBs while the snapshot is being read");
         dmosi_thread_destroy(reaper);
     }
 

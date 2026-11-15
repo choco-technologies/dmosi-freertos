@@ -30,6 +30,5 @@ add_test(NAME dmosi_freertos_tests COMMAND ${PROJECT_NAME})
 
 # Inject a task exit between snapshot creation and TLS reads in the regression test.
 target_link_options(${PROJECT_NAME} PRIVATE
-    -Wl,--wrap=uxTaskGetSystemState
     -Wl,--wrap=pvTaskGetThreadLocalStoragePointer
 )
