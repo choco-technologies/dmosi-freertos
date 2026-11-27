@@ -49,14 +49,17 @@
  * The supervisor terminates a process on behalf of a thread that faulted or
  * overflowed its stack: it prints the report through the process's standard
  * output (file system, terminal and driver underneath), runs the exit
- * callbacks of the process and its threads and unloads its module. That is
- * more than the stack of an application's thread is sized for (on a
- * Cortex-M7 it overran the 3 KiB one of a process that had just crashed).
- * An architecture whose frames are larger overrides it in its
- * FreeRTOSConfigArch.h.
+ * callbacks of the process and its threads and unloads its module.
+ *
+ * The size is what that takes, not a margin: measured on an ESP32-S3 (faulttest: an
+ * invalid access, an illegal instruction, two stack overflows) the deepest use is
+ * 1360 bytes. A module whose termination needs more should use less stack first
+ * (what its deinit does, the callbacks it registered); only when that cannot be done
+ * is this to be raised, with the module and the measured use in this comment.
+ * An architecture whose frames are larger overrides it in its FreeRTOSConfigArch.h.
  */
 #ifndef DMOSI_FAULT_SUPERVISOR_STACK_SIZE
-#define DMOSI_FAULT_SUPERVISOR_STACK_SIZE    8192
+#define DMOSI_FAULT_SUPERVISOR_STACK_SIZE    4096
 #endif
 
 /**
@@ -881,6 +884,33 @@ DMOD_INPUT_API_DECLARATION( dmosi, 1.0, bool, _thread_fault, (const dmosi_fault_
 static dmosi_thread_t g_fault_supervisor = NULL;
 
 /**
+ * @brief The process the fault supervisor runs in (kept to start its replacement in the same one)
+ */
+static dmosi_process_t g_fault_supervisor_process = NULL;
+
+/**
+ * @brief What is queued for the fault supervisor to be told to hand over to a new thread (see dmosi_thread_fault_supervisor_restart())
+ *
+ * Only its address matters: it is not a thread.
+ */
+static struct dmosi_thread g_fault_supervisor_handover;
+
+static void fault_supervisor_entry(void* arg);
+
+/**
+ * @brief Start the thread that handles faults
+ *
+ * @param process Process the thread belongs to
+ * @param predecessor The supervisor this one takes over from (it is waited for and freed), NULL for the first one
+ * @return dmosi_thread_t The thread, NULL on failure
+ */
+static dmosi_thread_t fault_supervisor_create(dmosi_process_t process, dmosi_thread_t predecessor)
+{
+    return dmosi_thread_create(fault_supervisor_entry, predecessor, configMAX_PRIORITIES - 1,
+                               DMOSI_FAULT_SUPERVISOR_STACK_SIZE, "fault", process);
+}
+
+/**
  * @brief Entry of the fault supervisor thread
  *
  * Terminates the processes of the threads that faulted: the ones the CPU
@@ -890,15 +920,38 @@ static dmosi_thread_t g_fault_supervisor = NULL;
  * is not running, and there is no telling when it would again. Neither can
  * do it on the stack it has, so it is done here, on one made for it.
  *
- * @param arg Not used
+ * It ends when it has handed over to a new supervisor (see
+ * dmosi_thread_fault_supervisor_restart()): the queue is the same, so no fault is lost.
+ *
+ * @param arg The supervisor this one takes over from, NULL for the first one
  */
 static void fault_supervisor_entry(void* arg)
 {
-    (void)arg;
+    dmosi_thread_t predecessor = (dmosi_thread_t)arg;
+    bool handed_over = false;
 
-    for (;;) {
+    // The one before has queued nothing for this thread: it only has to finish, and its structure is freed here
+    if (predecessor != NULL) {
+        (void)dmosi_thread_join(predecessor);
+        dmosi_thread_destroy(predecessor);
+    }
+
+    while (!handed_over) {
         struct dmosi_thread* thread = NULL;
-        if (xQueueReceive(g_overflowed_threads, &thread, portMAX_DELAY) == pdTRUE && thread != NULL) {
+        if (xQueueReceive(g_overflowed_threads, &thread, portMAX_DELAY) != pdTRUE || thread == NULL) {
+            continue;
+        }
+
+        if (thread == &g_fault_supervisor_handover) {
+            // Every fault queued before this one has been handled. If the new thread cannot be made this one goes on.
+            dmosi_thread_t next = fault_supervisor_create(g_fault_supervisor_process, g_fault_supervisor);
+            if (next != NULL) {
+                g_fault_supervisor = next;
+                handed_over = true;
+            } else {
+                DMOD_LOG_ERROR("Cannot start a new fault supervisor, the old one stays\n");
+            }
+        } else {
             dmosi_process_fault(thread->process, &thread->fault);
         }
     }
@@ -911,8 +964,8 @@ bool dmosi_thread_fault_supervisor_start(dmosi_process_t process)
         return false;
     }
 
-    g_fault_supervisor = dmosi_thread_create(fault_supervisor_entry, NULL, configMAX_PRIORITIES - 1,
-                                             DMOSI_FAULT_SUPERVISOR_STACK_SIZE, "fault", process);
+    g_fault_supervisor_process = process;
+    g_fault_supervisor = fault_supervisor_create(process, NULL);
     if (g_fault_supervisor == NULL) {
         vQueueDelete(g_overflowed_threads);
         g_overflowed_threads = NULL;
@@ -920,6 +973,17 @@ bool dmosi_thread_fault_supervisor_start(dmosi_process_t process)
     }
 
     return true;
+}
+
+DMOD_INPUT_API_DECLARATION( dmosi, 1.0, int, _thread_fault_supervisor_restart, (void) )
+{
+    if (g_overflowed_threads == NULL || g_fault_supervisor == NULL) {
+        return -ENOSYS;
+    }
+
+    // The supervisor does the replacing itself, when it gets here in the queue: it is never in the middle of a fault then
+    struct dmosi_thread* handover = &g_fault_supervisor_handover;
+    return (xQueueSend(g_overflowed_threads, &handover, 0) == pdTRUE) ? 0 : -EBUSY;
 }
 
 void dmosi_thread_fault_supervisor_stop(void)

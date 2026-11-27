@@ -799,6 +799,8 @@ static void test_stack_overflow_of_thread( void )
                  "Stack overflow is reported on the stdout of the process" );
 }
 
+static void test_fault_supervisor_restart( void );
+
 static void test_fault( void )
 {
     printf( "\n=== Testing fault ===\n" );
@@ -816,6 +818,58 @@ static void test_fault( void )
 
     test_fault_of_running_thread();
     test_stack_overflow_of_thread();
+    test_fault_supervisor_restart();
+}
+
+/* The thread that handles faults, NULL when there is none (the system's threads are all there is to look through) */
+static dmosi_thread_t find_fault_supervisor( void )
+{
+    dmosi_thread_t found = NULL;
+    size_t count = dmosi_thread_get_all( NULL, 0 );
+    dmosi_thread_t * threads = malloc( sizeof( dmosi_thread_t ) * ( count + 4 ) );
+    if( threads != NULL )
+    {
+        count = dmosi_thread_get_all( threads, count + 4 );
+        for( size_t i = 0; i < count && found == NULL; i++ )
+        {
+            const char * name = dmosi_thread_get_name( threads[ i ] );
+            if( name != NULL && strcmp( name, "fault" ) == 0 )
+            {
+                found = threads[ i ];
+            }
+        }
+        free( threads );
+    }
+    return found;
+}
+
+static void test_fault_supervisor_restart( void )
+{
+    printf( "\n=== Testing the restart of the fault supervisor ===\n" );
+
+    dmosi_thread_t before = find_fault_supervisor();
+    TEST_ASSERT( before != NULL, "There is a fault supervisor to start with" );
+
+    TEST_ASSERT( dmosi_thread_fault_supervisor_restart() == 0, "Restart of the fault supervisor is accepted" );
+
+    /* The old supervisor creates its successor and ends: wait for another thread of that name */
+    dmosi_thread_t after = before;
+    for( int i = 0; i < 100 && ( after == before || after == NULL ); i++ )
+    {
+        dmosi_thread_sleep( 10 );
+        after = find_fault_supervisor();
+    }
+    TEST_ASSERT( after != NULL && after != before, "A new thread handles faults" );
+
+    /* Nothing is lost on the way: the new thread contains faults as the old one did */
+    test_fault_of_running_thread();
+    test_stack_overflow_of_thread();
+
+    /* And it can be replaced again, with a fault handled in between */
+    TEST_ASSERT( dmosi_thread_fault_supervisor_restart() == 0, "Second restart is accepted" );
+    TEST_ASSERT( dmosi_thread_fault_supervisor_restart() == 0, "A restart queued behind a restart is accepted" );
+    dmosi_thread_sleep( 200 );
+    test_fault_of_running_thread();
 }
 
 /* =========================================================================
